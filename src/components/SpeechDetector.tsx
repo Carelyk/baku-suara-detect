@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
 import { LiveTranscript } from './LiveTranscript';
+import { toast } from '@/hooks/use-toast';
 
 export const SpeechDetector = () => {
   const [isListening, setIsListening] = useState(false);
@@ -13,6 +14,8 @@ export const SpeechDetector = () => {
   const [isCorrect, setIsCorrect] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [browserSupported, setBrowserSupported] = useState(true);
+  const [statusMessage, setStatusMessage] = useState('');
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const isListeningRef = useRef(false);
@@ -71,6 +74,19 @@ export const SpeechDetector = () => {
     'trus': 'kemudian',
   };
 
+  // Check browser support on mount
+  useEffect(() => {
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      setBrowserSupported(false);
+      toast({
+        title: "Browser Tidak Didukung",
+        description: "Gunakan Chrome, Edge, atau Safari untuk fitur speech recognition.",
+        variant: "destructive"
+      });
+    }
+  }, []);
+
   const checkForInformalWords = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
@@ -85,10 +101,7 @@ export const SpeechDetector = () => {
     }
 
     if (foundInformal.length > 0) {
-      return {
-        hasError: true,
-        errors: foundInformal
-      };
+      return { hasError: true, errors: foundInformal };
     }
     return { hasError: false, errors: [] };
   }, []);
@@ -101,35 +114,222 @@ export const SpeechDetector = () => {
     }
   }, []);
 
-  const initRecognition = useCallback(() => {
+  const stopListening = useCallback(() => {
+    console.log('Stopping listening...');
+    isListeningRef.current = false;
+    setIsListening(false);
+    setStatusMessage('');
+    
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.log('Error stopping recognition:', e);
+      }
+      recognitionRef.current = null;
+    }
+    
+    stopAudioStream();
+  }, [stopAudioStream]);
+
+  const startListening = useCallback(async () => {
+    console.log('Starting listening...');
+    setStatusMessage('Meminta izin mikrofon...');
+    
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
     if (!SpeechRecognitionAPI) {
-      alert('Browser Anda tidak mendukung Speech Recognition. Gunakan Chrome atau Edge.');
-      return null;
+      toast({
+        title: "Browser Tidak Didukung",
+        description: "Gunakan Chrome, Edge, atau Safari.",
+        variant: "destructive"
+      });
+      setStatusMessage('');
+      return;
     }
 
-    const recognition = new SpeechRecognitionAPI();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'id-ID';
-    recognition.maxAlternatives = 1;
-
-    return recognition;
-  }, []);
-
-  const handleMicClick = async () => {
-    if (isListening) {
-      // Stop listening
-      isListeningRef.current = false;
-      setIsListening(false);
+    try {
+      // First get microphone permission
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      });
       
-      if (recognitionRef.current) {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
-      }
-      stopAudioStream();
+      console.log('Microphone access granted');
+      streamRef.current = stream;
+      setAudioStream(stream);
+      setStatusMessage('Mikrofon aktif, mulai berbicara...');
 
+      // Create and setup recognition
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'id-ID';
+      recognition.maxAlternatives = 1;
+      
+      recognitionRef.current = recognition;
+
+      // Reset state
+      setTranscript('');
+      setInterimTranscript('');
+      setShowResult(false);
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+        setStatusMessage('Mendengarkan... Silakan berbicara');
+      };
+
+      recognition.onaudiostart = () => {
+        console.log('Audio capturing started');
+      };
+
+      recognition.onsoundstart = () => {
+        console.log('Sound detected');
+        setStatusMessage('Suara terdeteksi...');
+      };
+
+      recognition.onspeechstart = () => {
+        console.log('Speech started');
+        setStatusMessage('Berbicara...');
+      };
+
+      recognition.onresult = (event: any) => {
+        console.log('Got result:', event.results);
+        let interim = '';
+        let final = '';
+        
+        for (let i = 0; i < event.results.length; i++) {
+          const result = event.results[i];
+          const transcriptText = result[0].transcript;
+          
+          if (result.isFinal) {
+            final += transcriptText + ' ';
+            
+            // Check for informal words in real-time
+            const check = checkForInformalWords(transcriptText);
+            if (check.hasError) {
+              setIsCorrect(false);
+              setErrorMessage(`Ditemukan kata tidak baku:\n${check.errors.join('\n')}`);
+              setShowResult(true);
+            }
+          } else {
+            interim += transcriptText;
+          }
+        }
+        
+        if (final) {
+          setTranscript(prev => prev + final);
+        }
+        setInterimTranscript(interim);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error, event);
+        
+        switch (event.error) {
+          case 'no-speech':
+            // This is normal, just keep listening
+            console.log('No speech detected, continuing...');
+            setStatusMessage('Tidak ada suara terdeteksi, terus berbicara...');
+            return;
+          case 'audio-capture':
+            toast({
+              title: "Error Mikrofon",
+              description: "Tidak dapat menangkap audio. Periksa mikrofon Anda.",
+              variant: "destructive"
+            });
+            break;
+          case 'not-allowed':
+            toast({
+              title: "Izin Ditolak",
+              description: "Izinkan akses mikrofon di pengaturan browser.",
+              variant: "destructive"
+            });
+            break;
+          case 'network':
+            toast({
+              title: "Error Jaringan",
+              description: "Periksa koneksi internet Anda.",
+              variant: "destructive"
+            });
+            break;
+          case 'aborted':
+            console.log('Recognition aborted');
+            return;
+          default:
+            console.log('Unknown error:', event.error);
+        }
+        
+        // Only stop on critical errors
+        if (['not-allowed', 'audio-capture', 'network'].includes(event.error)) {
+          stopListening();
+        }
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended, isListeningRef:', isListeningRef.current);
+        
+        // Auto-restart if still supposed to be listening
+        if (isListeningRef.current && recognitionRef.current) {
+          console.log('Restarting recognition...');
+          setTimeout(() => {
+            try {
+              if (isListeningRef.current && recognitionRef.current) {
+                recognitionRef.current.start();
+              }
+            } catch (e) {
+              console.log('Could not restart recognition:', e);
+            }
+          }, 100);
+        }
+      };
+
+      // Start recognition
+      recognition.start();
+      isListeningRef.current = true;
+      setIsListening(true);
+      
+      console.log('Recognition started successfully');
+      
+    } catch (err: any) {
+      console.error('Error starting:', err);
+      setStatusMessage('');
+      
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        toast({
+          title: "Izin Mikrofon Ditolak",
+          description: "Klik ikon gembok di address bar dan izinkan mikrofon.",
+          variant: "destructive"
+        });
+      } else if (err.name === 'NotFoundError') {
+        toast({
+          title: "Mikrofon Tidak Ditemukan",
+          description: "Pastikan mikrofon terhubung ke perangkat.",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: err.message || "Gagal mengakses mikrofon.",
+          variant: "destructive"
+        });
+      }
+      
+      stopAudioStream();
+    }
+  }, [checkForInformalWords, stopAudioStream, stopListening]);
+
+  const handleMicClick = () => {
+    console.log('Mic clicked, current state:', isListening);
+    
+    if (isListening) {
+      stopListening();
+      
       // Validate final transcript
       const fullTranscript = transcript + interimTranscript;
       if (fullTranscript.trim()) {
@@ -144,86 +344,7 @@ export const SpeechDetector = () => {
         setShowResult(true);
       }
     } else {
-      // Start listening
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
-        setAudioStream(stream);
-        
-        const recognition = initRecognition();
-        if (!recognition) {
-          stopAudioStream();
-          return;
-        }
-
-        recognitionRef.current = recognition;
-        
-        setTranscript('');
-        setInterimTranscript('');
-        setShowResult(false);
-        
-        recognition.onresult = (event: any) => {
-          let interim = '';
-          let final = '';
-          
-          for (let i = 0; i < event.results.length; i++) {
-            const result = event.results[i];
-            const transcriptText = result[0].transcript;
-            
-            if (result.isFinal) {
-              final += transcriptText + ' ';
-              
-              // Check for informal words in real-time
-              const check = checkForInformalWords(transcriptText);
-              if (check.hasError) {
-                setIsCorrect(false);
-                setErrorMessage(`Ditemukan kata tidak baku:\n${check.errors.join('\n')}`);
-                setShowResult(true);
-              }
-            } else {
-              interim += transcriptText;
-            }
-          }
-          
-          if (final) {
-            setTranscript(prev => prev + final);
-          }
-          setInterimTranscript(interim);
-        };
-
-        recognition.onerror = (event: any) => {
-          console.error('Speech recognition error:', event.error);
-          if (event.error === 'no-speech') {
-            // Continue listening, don't stop
-            return;
-          }
-          if (event.error !== 'aborted') {
-            isListeningRef.current = false;
-            setIsListening(false);
-            stopAudioStream();
-          }
-        };
-
-        recognition.onend = () => {
-          // Auto-restart if still supposed to be listening
-          if (isListeningRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) {
-              console.log('Recognition restart failed:', e);
-            }
-          }
-        };
-
-        recognition.start();
-        isListeningRef.current = true;
-        setIsListening(true);
-        
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
-        alert('Tidak dapat mengakses mikrofon. Pastikan izin mikrofon sudah diberikan.');
-        stopAudioStream();
-      }
+      startListening();
     }
   };
 
@@ -235,8 +356,9 @@ export const SpeechDetector = () => {
     return () => {
       isListeningRef.current = false;
       if (recognitionRef.current) {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
       }
       stopAudioStream();
     };
@@ -257,6 +379,21 @@ export const SpeechDetector = () => {
           </p>
         </div>
 
+        {/* Browser Warning */}
+        {!browserSupported && (
+          <Card className="p-4 bg-destructive/10 border-destructive/50">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <div>
+                <p className="font-medium text-destructive">Browser Tidak Didukung</p>
+                <p className="text-sm text-muted-foreground">
+                  Gunakan Google Chrome, Microsoft Edge, atau Safari untuk fitur speech recognition.
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Main Card */}
         <Card className="p-8 bg-card shadow-xl border-secondary/50">
           {/* Microphone Button */}
@@ -271,7 +408,8 @@ export const SpeechDetector = () => {
               <button
                 type="button"
                 onClick={handleMicClick}
-                className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer border-0 outline-none ${
+                disabled={!browserSupported}
+                className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer border-0 outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                   isListening 
                     ? 'bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30' 
                     : 'bg-secondary hover:bg-secondary/90 shadow-lg shadow-secondary/30'
@@ -285,9 +423,14 @@ export const SpeechDetector = () => {
               </button>
             </div>
 
-            <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
-              {isListening ? 'Mendengarkan... (tekan untuk berhenti)' : 'Tekan untuk mulai'}
-            </p>
+            <div className="text-center">
+              <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
+                {isListening ? 'Tekan untuk berhenti' : 'Tekan untuk mulai'}
+              </p>
+              {statusMessage && (
+                <p className="text-sm text-muted-foreground mt-1">{statusMessage}</p>
+              )}
+            </div>
 
             {/* Waveform */}
             <SpeechWaveform audioStream={audioStream} />
