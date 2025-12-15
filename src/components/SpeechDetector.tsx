@@ -1,16 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2 } from 'lucide-react';
+import { Mic, MicOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
+import { LiveTranscript } from './LiveTranscript';
 
 export const SpeechDetector = () => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -21,22 +24,30 @@ export const SpeechDetector = () => {
       recognitionRef.current.interimResults = true;
       recognitionRef.current.lang = 'id-ID';
 
-      recognitionRef.current.onresult = (event) => {
-        let finalTranscript = '';
+      recognitionRef.current.onresult = (event: any) => {
+        let interim = '';
+        let final = '';
+        
         for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcriptText = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            final += transcriptText;
+          } else {
+            interim += transcriptText;
           }
         }
-        if (finalTranscript) {
-          setTranscript(finalTranscript);
-          validateIndonesian(finalTranscript);
+        
+        setInterimTranscript(interim);
+        
+        if (final) {
+          setTranscript(prev => prev + final);
         }
       };
 
-      recognitionRef.current.onerror = (event) => {
+      recognitionRef.current.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
         setIsListening(false);
+        stopAudioStream();
       };
 
       recognitionRef.current.onend = () => {
@@ -50,11 +61,18 @@ export const SpeechDetector = () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
+      stopAudioStream();
     };
   }, [isListening]);
 
+  const stopAudioStream = () => {
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+      setAudioStream(null);
+    }
+  };
+
   const validateIndonesian = (text: string) => {
-    // Daftar kata tidak baku / slang yang umum
     const informalWords: Record<string, string> = {
       'gue': 'saya',
       'gua': 'saya',
@@ -131,15 +149,29 @@ export const SpeechDetector = () => {
     setShowResult(true);
   };
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
+      stopAudioStream();
+      
+      // Validate when stopping
+      const fullTranscript = transcript + interimTranscript;
+      if (fullTranscript.trim()) {
+        validateIndonesian(fullTranscript);
+      }
     } else {
-      setTranscript('');
-      setShowResult(false);
-      recognitionRef.current?.start();
-      setIsListening(true);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setAudioStream(stream);
+        setTranscript('');
+        setInterimTranscript('');
+        setShowResult(false);
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error('Error accessing microphone:', err);
+      }
     }
   };
 
@@ -147,23 +179,25 @@ export const SpeechDetector = () => {
     setShowResult(false);
   };
 
+  const fullTranscript = transcript + interimTranscript;
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-b from-secondary/30 to-background">
-      <div className="w-full max-w-2xl space-y-8">
+      <div className="w-full max-w-2xl space-y-6">
         {/* Header */}
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-bold text-foreground">
-            Deteksi Bahasa Indonesia Baku
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground">
+            Deteksi Bahasa Baku
           </h1>
-          <p className="text-muted-foreground text-lg">
-            Tekan tombol mikrofon dan mulai berbicara dalam Bahasa Indonesia yang baku
+          <p className="text-muted-foreground">
+            Berbicara dalam Bahasa Indonesia yang baku
           </p>
         </div>
 
         {/* Main Card */}
-        <Card className="p-8 bg-card shadow-xl border-secondary/50">
-          {/* Microphone Button */}
+        <Card className="p-6 md:p-8 bg-card shadow-xl border-secondary/50">
           <div className="flex flex-col items-center space-y-6">
+            {/* Microphone Button */}
             <div className="relative">
               {isListening && (
                 <>
@@ -174,55 +208,49 @@ export const SpeechDetector = () => {
               <Button
                 onClick={toggleListening}
                 size="lg"
-                className={`w-32 h-32 rounded-full transition-all duration-300 ${
+                className={`w-28 h-28 md:w-32 md:h-32 rounded-full transition-all duration-300 ${
                   isListening 
                     ? 'bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30' 
                     : 'bg-secondary hover:bg-secondary/90 shadow-lg shadow-secondary/30'
                 }`}
               >
                 {isListening ? (
-                  <MicOff className="w-12 h-12 text-accent-foreground" />
+                  <MicOff className="w-10 h-10 md:w-12 md:h-12 text-accent-foreground" />
                 ) : (
-                  <Mic className="w-12 h-12 text-secondary-foreground" />
+                  <Mic className="w-10 h-10 md:w-12 md:h-12 text-secondary-foreground" />
                 )}
               </Button>
             </div>
 
-            <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
-              {isListening ? 'Mendengarkan...' : 'Tekan untuk mulai'}
+            <p className={`text-sm font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
+              {isListening ? 'Tekan untuk berhenti' : 'Tekan untuk mulai'}
             </p>
 
             {/* Waveform */}
-            {isListening && <SpeechWaveform />}
-          </div>
+            <SpeechWaveform audioStream={audioStream} />
 
-          {/* Transcript Display */}
-          {transcript && (
-            <div className="mt-8 p-4 rounded-lg bg-muted/50 border border-border">
-              <div className="flex items-center gap-2 mb-2">
-                <Volume2 className="w-5 h-5 text-accent" />
-                <span className="text-sm font-medium text-muted-foreground">Terdeteksi:</span>
-              </div>
-              <p className="text-lg text-foreground">{transcript}</p>
-            </div>
-          )}
+            {/* Live Transcript Preview */}
+            <LiveTranscript 
+              transcript={fullTranscript}
+              isListening={isListening}
+            />
+          </div>
         </Card>
 
         {/* Instructions */}
-        <Card className="p-6 bg-secondary/20 border-secondary/30">
-          <h3 className="font-semibold text-foreground mb-3">Petunjuk:</h3>
-          <ul className="space-y-2 text-muted-foreground">
-            <li className="flex items-start gap-2">
-              <span className="text-accent">•</span>
-              Gunakan bahasa Indonesia yang baku sesuai KBBI
+        <Card className="p-4 bg-secondary/10 border-secondary/20">
+          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <li className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              Gunakan bahasa baku KBBI
             </li>
-            <li className="flex items-start gap-2">
-              <span className="text-accent">•</span>
-              Hindari penggunaan bahasa slang atau bahasa daerah
+            <li className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              Hindari bahasa slang
             </li>
-            <li className="flex items-start gap-2">
-              <span className="text-accent">•</span>
-              Berbicara dengan jelas dan tidak terlalu cepat
+            <li className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              Berbicara dengan jelas
             </li>
           </ul>
         </Card>
@@ -233,7 +261,7 @@ export const SpeechDetector = () => {
         isOpen={showResult}
         isCorrect={isCorrect}
         message={isCorrect ? 'Bahasa Indonesia Baku!' : errorMessage}
-        transcript={transcript}
+        transcript={transcript || interimTranscript}
         onClose={closeResult}
       />
     </div>
