@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, MicOff, Volume2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
@@ -16,6 +15,7 @@ export const SpeechDetector = () => {
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isListeningRef = useRef(false);
 
   const informalWords: Record<string, string> = {
     'gue': 'saya',
@@ -71,15 +71,7 @@ export const SpeechDetector = () => {
     'trus': 'kemudian',
   };
 
-  const stopAudioStream = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-      setAudioStream(null);
-    }
-  }, []);
-
-  const validateIndonesian = useCallback((text: string) => {
+  const checkForInformalWords = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
     
@@ -93,102 +85,162 @@ export const SpeechDetector = () => {
     }
 
     if (foundInformal.length > 0) {
-      setIsCorrect(false);
-      setErrorMessage(`Ditemukan kata tidak baku:\n${foundInformal.join('\n')}`);
-    } else {
-      setIsCorrect(true);
-      setErrorMessage('');
+      return {
+        hasError: true,
+        errors: foundInformal
+      };
     }
-    setShowResult(true);
-  }, [informalWords]);
+    return { hasError: false, errors: [] };
+  }, []);
 
-  useEffect(() => {
+  const stopAudioStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setAudioStream(null);
+    }
+  }, []);
+
+  const initRecognition = useCallback(() => {
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognitionAPI) {
-      recognitionRef.current = new SpeechRecognitionAPI();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'id-ID';
-
-      recognitionRef.current.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcriptText = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            final += transcriptText;
-          } else {
-            interim += transcriptText;
-          }
-        }
-        
-        setInterimTranscript(interim);
-        
-        if (final) {
-          setTranscript(prev => prev + final);
-        }
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-        stopAudioStream();
-      };
+    
+    if (!SpeechRecognitionAPI) {
+      alert('Browser Anda tidak mendukung Speech Recognition. Gunakan Chrome atau Edge.');
+      return null;
     }
 
-    return () => {
+    const recognition = new SpeechRecognitionAPI();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'id-ID';
+    recognition.maxAlternatives = 1;
+
+    return recognition;
+  }, []);
+
+  const handleMicClick = async () => {
+    if (isListening) {
+      // Stop listening
+      isListeningRef.current = false;
+      setIsListening(false);
+      
       if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
         recognitionRef.current.stop();
       }
       stopAudioStream();
-    };
-  }, [stopAudioStream]);
 
-  const startListening = useCallback(() => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => {
+      // Validate final transcript
+      const fullTranscript = transcript + interimTranscript;
+      if (fullTranscript.trim()) {
+        const result = checkForInformalWords(fullTranscript);
+        if (result.hasError) {
+          setIsCorrect(false);
+          setErrorMessage(`Ditemukan kata tidak baku:\n${result.errors.join('\n')}`);
+        } else {
+          setIsCorrect(true);
+          setErrorMessage('');
+        }
+        setShowResult(true);
+      }
+    } else {
+      // Start listening
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         setAudioStream(stream);
+        
+        const recognition = initRecognition();
+        if (!recognition) {
+          stopAudioStream();
+          return;
+        }
+
+        recognitionRef.current = recognition;
+        
         setTranscript('');
         setInterimTranscript('');
         setShowResult(false);
         
-        if (recognitionRef.current) {
-          recognitionRef.current.start();
-        }
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          let final = '';
+          
+          for (let i = 0; i < event.results.length; i++) {
+            const result = event.results[i];
+            const transcriptText = result[0].transcript;
+            
+            if (result.isFinal) {
+              final += transcriptText + ' ';
+              
+              // Check for informal words in real-time
+              const check = checkForInformalWords(transcriptText);
+              if (check.hasError) {
+                setIsCorrect(false);
+                setErrorMessage(`Ditemukan kata tidak baku:\n${check.errors.join('\n')}`);
+                setShowResult(true);
+              }
+            } else {
+              interim += transcriptText;
+            }
+          }
+          
+          if (final) {
+            setTranscript(prev => prev + final);
+          }
+          setInterimTranscript(interim);
+        };
+
+        recognition.onerror = (event: any) => {
+          console.error('Speech recognition error:', event.error);
+          if (event.error === 'no-speech') {
+            // Continue listening, don't stop
+            return;
+          }
+          if (event.error !== 'aborted') {
+            isListeningRef.current = false;
+            setIsListening(false);
+            stopAudioStream();
+          }
+        };
+
+        recognition.onend = () => {
+          // Auto-restart if still supposed to be listening
+          if (isListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.log('Recognition restart failed:', e);
+            }
+          }
+        };
+
+        recognition.start();
+        isListeningRef.current = true;
         setIsListening(true);
-      })
-      .catch(err => {
+        
+      } catch (err) {
         console.error('Error accessing microphone:', err);
         alert('Tidak dapat mengakses mikrofon. Pastikan izin mikrofon sudah diberikan.');
-      });
-  }, []);
-
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-    setIsListening(false);
-    stopAudioStream();
-    
-    const fullTranscript = transcript + interimTranscript;
-    if (fullTranscript.trim()) {
-      validateIndonesian(fullTranscript);
-    }
-  }, [transcript, interimTranscript, stopAudioStream, validateIndonesian]);
-
-  const handleMicClick = () => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
+        stopAudioStream();
+      }
     }
   };
 
   const closeResult = () => {
     setShowResult(false);
   };
+
+  useEffect(() => {
+    return () => {
+      isListeningRef.current = false;
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      }
+      stopAudioStream();
+    };
+  }, [stopAudioStream]);
 
   const fullTranscript = transcript + interimTranscript;
 
@@ -219,7 +271,7 @@ export const SpeechDetector = () => {
               <button
                 type="button"
                 onClick={handleMicClick}
-                className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer ${
+                className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer border-0 outline-none ${
                   isListening 
                     ? 'bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30' 
                     : 'bg-secondary hover:bg-secondary/90 shadow-lg shadow-secondary/30'
@@ -234,14 +286,14 @@ export const SpeechDetector = () => {
             </div>
 
             <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
-              {isListening ? 'Mendengarkan...' : 'Tekan untuk mulai'}
+              {isListening ? 'Mendengarkan... (tekan untuk berhenti)' : 'Tekan untuk mulai'}
             </p>
 
             {/* Waveform */}
             <SpeechWaveform audioStream={audioStream} />
 
             {/* Live Transcript Preview */}
-            {isListening && (
+            {(isListening || fullTranscript) && (
               <LiveTranscript 
                 transcript={fullTranscript}
                 isListening={isListening}
@@ -250,7 +302,7 @@ export const SpeechDetector = () => {
           </div>
 
           {/* Final Transcript Display */}
-          {!isListening && transcript && (
+          {!isListening && transcript && !showResult && (
             <div className="mt-8 p-4 rounded-lg bg-muted/50 border border-border">
               <div className="flex items-center gap-2 mb-2">
                 <Volume2 className="w-5 h-5 text-accent" />
@@ -276,6 +328,10 @@ export const SpeechDetector = () => {
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
               Berbicara dengan jelas dan tidak terlalu cepat
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-accent">•</span>
+              Pop-up akan muncul jika kata tidak baku terdeteksi
             </li>
           </ul>
         </Card>
