@@ -9,14 +9,18 @@ import { toast } from '@/hooks/use-toast';
 export const SpeechDetector = () => {
   const [isListening, setIsListening] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
+  const [resultTranscript, setResultTranscript] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
-  const [detectedErrors, setDetectedErrors] = useState<Array<{wrong: string, correct: string}>>([]);
+  const [detectedErrors, setDetectedErrors] = useState<Array<{ wrong: string; correct: string }>>([]);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [browserSupported, setBrowserSupported] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const finalTranscriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const lastFinalUtteranceRef = useRef('');
 
   // Expanded informal to formal word mapping
   const informalWords: Record<string, string> = {
@@ -259,8 +263,12 @@ export const SpeechDetector = () => {
 
       // Reset state
       setCurrentTranscript('');
+      setResultTranscript('');
       setShowResult(false);
       setDetectedErrors([]);
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+      lastFinalUtteranceRef.current = '';
 
       recognition.onstart = () => {
         console.log('Speech recognition started');
@@ -273,37 +281,36 @@ export const SpeechDetector = () => {
       };
 
       recognition.onresult = (event: any) => {
-        // Get only the latest result to avoid duplication
-        const lastResultIndex = event.results.length - 1;
-        const lastResult = event.results[lastResultIndex];
-        const transcriptText = lastResult[0].transcript;
-        
-        // Build full transcript from all results
-        let fullText = '';
-        for (let i = 0; i < event.results.length; i++) {
-          fullText += event.results[i][0].transcript;
-          if (i < event.results.length - 1 && event.results[i].isFinal) {
-            fullText += ' ';
-          }
-        }
-        
-        setCurrentTranscript(fullText.trim());
-        
-        // Check for errors on final results
-        if (lastResult.isFinal) {
-          const errors = checkForInformalWords(transcriptText);
-          if (errors.length > 0) {
-            setDetectedErrors(prev => {
-              const newErrors = [...prev];
-              errors.forEach(err => {
-                if (!newErrors.some(e => e.wrong === err.wrong)) {
-                  newErrors.push(err);
-                }
+        let interim = '';
+
+        // Only process new results to avoid duplicated text
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = (result?.[0]?.transcript || '').trim();
+          if (!text) continue;
+
+          if (result.isFinal) {
+            finalTranscriptRef.current = [finalTranscriptRef.current, text].filter(Boolean).join(' ').trim();
+            lastFinalUtteranceRef.current = text;
+
+            const errors = checkForInformalWords(text);
+            if (errors.length > 0) {
+              setDetectedErrors(prev => {
+                const next = [...prev];
+                errors.forEach(err => {
+                  if (!next.some(e => e.wrong === err.wrong)) next.push(err);
+                });
+                return next;
               });
-              return newErrors;
-            });
+            }
+          } else {
+            interim = text;
           }
         }
+
+        interimTranscriptRef.current = interim;
+        const combined = [finalTranscriptRef.current, interim].filter(Boolean).join(' ').trim();
+        setCurrentTranscript(combined);
       };
 
       recognition.onerror = (event: any) => {
@@ -379,13 +386,14 @@ export const SpeechDetector = () => {
     
     if (isListening) {
       stopListening();
-      
-      // Show result popup with final transcript
-      if (currentTranscript.trim()) {
-        const allErrors = checkForInformalWords(currentTranscript);
-        if (allErrors.length > 0) {
+
+      const snapshot = (lastFinalUtteranceRef.current || currentTranscript || '').trim();
+      if (snapshot) {
+        setResultTranscript(snapshot);
+        const errors = checkForInformalWords(snapshot);
+        if (errors.length > 0) {
           setIsCorrect(false);
-          setDetectedErrors(allErrors);
+          setDetectedErrors(errors);
         } else {
           setIsCorrect(true);
           setDetectedErrors([]);
@@ -400,7 +408,11 @@ export const SpeechDetector = () => {
   const closeResult = () => {
     setShowResult(false);
     setCurrentTranscript('');
+    setResultTranscript('');
     setDetectedErrors([]);
+    finalTranscriptRef.current = '';
+    interimTranscriptRef.current = '';
+    lastFinalUtteranceRef.current = '';
   };
 
   useEffect(() => {
@@ -529,7 +541,7 @@ export const SpeechDetector = () => {
         isOpen={showResult}
         isCorrect={isCorrect}
         errors={detectedErrors}
-        transcript={currentTranscript}
+        transcript={resultTranscript}
         onClose={closeResult}
       />
     </div>
