@@ -8,73 +8,156 @@ import { toast } from '@/hooks/use-toast';
 
 export const SpeechDetector = () => {
   const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [interimTranscript, setInterimTranscript] = useState('');
+  const [currentTranscript, setCurrentTranscript] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [detectedErrors, setDetectedErrors] = useState<Array<{wrong: string, correct: string}>>([]);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [browserSupported, setBrowserSupported] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const isListeningRef = useRef(false);
 
+  // Expanded informal to formal word mapping
   const informalWords: Record<string, string> = {
+    // Pronouns
     'gue': 'saya',
     'gua': 'saya',
     'gw': 'saya',
+    'aku': 'saya',
     'lo': 'kamu',
     'lu': 'kamu',
     'elu': 'kamu',
+    'loe': 'kamu',
+    
+    // Negation
     'kagak': 'tidak',
     'gak': 'tidak',
     'nggak': 'tidak',
     'enggak': 'tidak',
+    'ga': 'tidak',
+    'ngga': 'tidak',
+    'tak': 'tidak',
+    
+    // Time/State
     'udah': 'sudah',
     'udeh': 'sudah',
+    'dah': 'sudah',
+    'belom': 'belum',
+    'blm': 'belum',
+    'lagi': 'sedang',
+    'lg': 'sedang',
+    
+    // Question words
     'gimana': 'bagaimana',
+    'gmn': 'bagaimana',
+    'kok': 'mengapa',
+    'kenapa': 'mengapa',
+    'knp': 'mengapa',
+    'dimana': 'di mana',
+    'dmn': 'di mana',
+    'kemana': 'ke mana',
+    'kmn': 'ke mana',
+    
+    // Demonstratives
     'gitu': 'begitu',
     'gini': 'begini',
+    'nih': '',
+    'tuh': '',
+    
+    // Adverbs
     'emang': 'memang',
     'emg': 'memang',
     'banget': 'sangat',
     'bgt': 'sangat',
+    'amat': 'sangat',
+    
+    // Only/Just
     'aja': 'saja',
     'doang': 'saja',
     'cuma': 'hanya',
     'cuman': 'hanya',
+    'cmn': 'hanya',
+    
+    // Comparison
     'kayak': 'seperti',
     'kaya': 'seperti',
     'kek': 'seperti',
+    
+    // Verbs
     'bikin': 'membuat',
     'bkin': 'membuat',
     'ngomong': 'berbicara',
     'bilang': 'mengatakan',
-    'nih': 'ini',
-    'tuh': 'itu',
-    'dong': '',
-    'deh': '',
-    'sih': '',
-    'lah': '',
-    'kok': 'mengapa',
-    'kenapa': 'mengapa',
-    'pengen': 'ingin',
+    'blg': 'mengatakan',
+    'nyari': 'mencari',
     'mau': 'ingin',
+    'pengen': 'ingin',
+    'pgn': 'ingin',
     'bisa': 'dapat',
-    'sama': 'dengan',
-    'ama': 'dengan',
+    'bs': 'dapat',
     'pake': 'menggunakan',
     'pakai': 'menggunakan',
-    'nyari': 'mencari',
-    'lagi': 'sedang',
+    'punya': 'memiliki',
+    'tau': 'mengetahui',
+    'tw': 'mengetahui',
+    'ngerti': 'mengerti',
+    'nanya': 'bertanya',
+    'kasih': 'memberikan',
+    'liat': 'melihat',
+    'denger': 'mendengar',
+    'mikir': 'berpikir',
+    'ngerjain': 'mengerjakan',
+    'kerjain': 'mengerjakan',
+    
+    // Conjunctions/Prepositions
+    'sama': 'dengan',
+    'ama': 'dengan',
+    'ma': 'dengan',
+    'buat': 'untuk',
+    'bt': 'untuk',
+    
+    // Sequence
     'abis': 'setelah',
     'habis': 'setelah',
     'terus': 'kemudian',
     'trus': 'kemudian',
+    'trs': 'kemudian',
+    
+    // Particles (should be avoided)
+    'dong': '',
+    'deh': '',
+    'sih': '',
+    'lah': '',
+    'kan': '',
+    'dongs': '',
+    
+    // Slang
+    'asik': 'menyenangkan',
+    'asyik': 'menyenangkan',
+    'keren': 'bagus',
+    'gokil': 'luar biasa',
+    'mantap': 'bagus',
+    'mantep': 'bagus',
+    'anjir': '',
+    'anjay': '',
+    'wkwk': '',
+    
+    // Common informal
+    'yg': 'yang',
+    'dgn': 'dengan',
+    'utk': 'untuk',
+    'krn': 'karena',
+    'krna': 'karena',
+    'soalnya': 'karena',
+    'jd': 'jadi',
+    'jgn': 'jangan',
+    'hrs': 'harus',
+    'blh': 'boleh',
+    'ato': 'atau',
+    'atw': 'atau',
   };
 
-  // Check browser support on mount
   useEffect(() => {
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) {
@@ -91,19 +174,22 @@ export const SpeechDetector = () => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
     
-    const foundInformal: string[] = [];
+    const foundInformal: Array<{wrong: string, correct: string}> = [];
+    const seenWords = new Set<string>();
     
     for (const word of words) {
-      const cleanWord = word.replace(/[.,!?]/g, '');
-      if (informalWords[cleanWord]) {
-        foundInformal.push(`"${cleanWord}" → "${informalWords[cleanWord]}"`);
+      const cleanWord = word.replace(/[.,!?;:'"]/g, '');
+      if (informalWords[cleanWord] !== undefined && !seenWords.has(cleanWord)) {
+        seenWords.add(cleanWord);
+        const correction = informalWords[cleanWord];
+        foundInformal.push({
+          wrong: cleanWord,
+          correct: correction || '(hindari penggunaan kata ini)'
+        });
       }
     }
 
-    if (foundInformal.length > 0) {
-      return { hasError: true, errors: foundInformal };
-    }
-    return { hasError: false, errors: [] };
+    return foundInformal;
   }, []);
 
   const stopAudioStream = useCallback(() => {
@@ -116,7 +202,6 @@ export const SpeechDetector = () => {
 
   const stopListening = useCallback(() => {
     console.log('Stopping listening...');
-    isListeningRef.current = false;
     setIsListening(false);
     setStatusMessage('');
     
@@ -152,7 +237,6 @@ export const SpeechDetector = () => {
     }
 
     try {
-      // First get microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -165,7 +249,6 @@ export const SpeechDetector = () => {
       setAudioStream(stream);
       setStatusMessage('Mikrofon aktif, mulai berbicara...');
 
-      // Create and setup recognition
       const recognition = new SpeechRecognitionAPI();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -175,22 +258,13 @@ export const SpeechDetector = () => {
       recognitionRef.current = recognition;
 
       // Reset state
-      setTranscript('');
-      setInterimTranscript('');
+      setCurrentTranscript('');
       setShowResult(false);
+      setDetectedErrors([]);
 
       recognition.onstart = () => {
         console.log('Speech recognition started');
         setStatusMessage('Mendengarkan... Silakan berbicara');
-      };
-
-      recognition.onaudiostart = () => {
-        console.log('Audio capturing started');
-      };
-
-      recognition.onsoundstart = () => {
-        console.log('Sound detected');
-        setStatusMessage('Suara terdeteksi...');
       };
 
       recognition.onspeechstart = () => {
@@ -199,50 +273,53 @@ export const SpeechDetector = () => {
       };
 
       recognition.onresult = (event: any) => {
-        console.log('Got result:', event.results);
-        let interim = '';
-        let final = '';
+        // Get only the latest result to avoid duplication
+        const lastResultIndex = event.results.length - 1;
+        const lastResult = event.results[lastResultIndex];
+        const transcriptText = lastResult[0].transcript;
         
+        // Build full transcript from all results
+        let fullText = '';
         for (let i = 0; i < event.results.length; i++) {
-          const result = event.results[i];
-          const transcriptText = result[0].transcript;
-          
-          if (result.isFinal) {
-            final += transcriptText + ' ';
-            
-            // Check for informal words in real-time
-            const check = checkForInformalWords(transcriptText);
-            if (check.hasError) {
-              setIsCorrect(false);
-              setErrorMessage(`Ditemukan kata tidak baku:\n${check.errors.join('\n')}`);
-              setShowResult(true);
-            }
-          } else {
-            interim += transcriptText;
+          fullText += event.results[i][0].transcript;
+          if (i < event.results.length - 1 && event.results[i].isFinal) {
+            fullText += ' ';
           }
         }
         
-        if (final) {
-          setTranscript(prev => prev + final);
+        setCurrentTranscript(fullText.trim());
+        
+        // Check for errors on final results
+        if (lastResult.isFinal) {
+          const errors = checkForInformalWords(transcriptText);
+          if (errors.length > 0) {
+            setDetectedErrors(prev => {
+              const newErrors = [...prev];
+              errors.forEach(err => {
+                if (!newErrors.some(e => e.wrong === err.wrong)) {
+                  newErrors.push(err);
+                }
+              });
+              return newErrors;
+            });
+          }
         }
-        setInterimTranscript(interim);
       };
 
       recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error, event);
+        console.error('Speech recognition error:', event.error);
         
         switch (event.error) {
           case 'no-speech':
-            // This is normal, just keep listening
-            console.log('No speech detected, continuing...');
-            setStatusMessage('Tidak ada suara terdeteksi, terus berbicara...');
+            setStatusMessage('Tidak ada suara, terus berbicara...');
             return;
           case 'audio-capture':
             toast({
               title: "Error Mikrofon",
-              description: "Tidak dapat menangkap audio. Periksa mikrofon Anda.",
+              description: "Tidak dapat menangkap audio.",
               variant: "destructive"
             });
+            stopListening();
             break;
           case 'not-allowed':
             toast({
@@ -250,51 +327,24 @@ export const SpeechDetector = () => {
               description: "Izinkan akses mikrofon di pengaturan browser.",
               variant: "destructive"
             });
-            break;
-          case 'network':
-            toast({
-              title: "Error Jaringan",
-              description: "Periksa koneksi internet Anda.",
-              variant: "destructive"
-            });
+            stopListening();
             break;
           case 'aborted':
-            console.log('Recognition aborted');
             return;
           default:
-            console.log('Unknown error:', event.error);
-        }
-        
-        // Only stop on critical errors
-        if (['not-allowed', 'audio-capture', 'network'].includes(event.error)) {
-          stopListening();
+            console.log('Error:', event.error);
         }
       };
 
+      // NO auto-restart - mic turns off when recognition ends
       recognition.onend = () => {
-        console.log('Speech recognition ended, isListeningRef:', isListeningRef.current);
-        
-        // Auto-restart if still supposed to be listening
-        if (isListeningRef.current && recognitionRef.current) {
-          console.log('Restarting recognition...');
-          setTimeout(() => {
-            try {
-              if (isListeningRef.current && recognitionRef.current) {
-                recognitionRef.current.start();
-              }
-            } catch (e) {
-              console.log('Could not restart recognition:', e);
-            }
-          }, 100);
-        }
+        console.log('Recognition ended');
+        // Don't auto-restart, let user control
       };
 
-      // Start recognition
       recognition.start();
-      isListeningRef.current = true;
       setIsListening(true);
-      
-      console.log('Recognition started successfully');
+      console.log('Recognition started');
       
     } catch (err: any) {
       console.error('Error starting:', err);
@@ -309,7 +359,7 @@ export const SpeechDetector = () => {
       } else if (err.name === 'NotFoundError') {
         toast({
           title: "Mikrofon Tidak Ditemukan",
-          description: "Pastikan mikrofon terhubung ke perangkat.",
+          description: "Pastikan mikrofon terhubung.",
           variant: "destructive"
         });
       } else {
@@ -325,21 +375,20 @@ export const SpeechDetector = () => {
   }, [checkForInformalWords, stopAudioStream, stopListening]);
 
   const handleMicClick = () => {
-    console.log('Mic clicked, current state:', isListening);
+    console.log('Mic clicked, isListening:', isListening);
     
     if (isListening) {
       stopListening();
       
-      // Validate final transcript
-      const fullTranscript = transcript + interimTranscript;
-      if (fullTranscript.trim()) {
-        const result = checkForInformalWords(fullTranscript);
-        if (result.hasError) {
+      // Show result popup with final transcript
+      if (currentTranscript.trim()) {
+        const allErrors = checkForInformalWords(currentTranscript);
+        if (allErrors.length > 0) {
           setIsCorrect(false);
-          setErrorMessage(`Ditemukan kata tidak baku:\n${result.errors.join('\n')}`);
+          setDetectedErrors(allErrors);
         } else {
           setIsCorrect(true);
-          setErrorMessage('');
+          setDetectedErrors([]);
         }
         setShowResult(true);
       }
@@ -350,11 +399,12 @@ export const SpeechDetector = () => {
 
   const closeResult = () => {
     setShowResult(false);
+    setCurrentTranscript('');
+    setDetectedErrors([]);
   };
 
   useEffect(() => {
     return () => {
-      isListeningRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -363,8 +413,6 @@ export const SpeechDetector = () => {
       stopAudioStream();
     };
   }, [stopAudioStream]);
-
-  const fullTranscript = transcript + interimTranscript;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-b from-secondary/30 to-background">
@@ -387,7 +435,7 @@ export const SpeechDetector = () => {
               <div>
                 <p className="font-medium text-destructive">Browser Tidak Didukung</p>
                 <p className="text-sm text-muted-foreground">
-                  Gunakan Google Chrome, Microsoft Edge, atau Safari untuk fitur speech recognition.
+                  Gunakan Google Chrome, Microsoft Edge, atau Safari.
                 </p>
               </div>
             </div>
@@ -396,8 +444,8 @@ export const SpeechDetector = () => {
 
         {/* Main Card */}
         <Card className="p-8 bg-card shadow-xl border-secondary/50">
-          {/* Microphone Button */}
           <div className="flex flex-col items-center space-y-6">
+            {/* Mic Button */}
             <div className="relative">
               {isListening && (
                 <>
@@ -435,23 +483,23 @@ export const SpeechDetector = () => {
             {/* Waveform */}
             <SpeechWaveform audioStream={audioStream} />
 
-            {/* Live Transcript Preview */}
-            {(isListening || fullTranscript) && (
+            {/* Live Transcript */}
+            {(isListening || currentTranscript) && (
               <LiveTranscript 
-                transcript={fullTranscript}
+                transcript={currentTranscript}
                 isListening={isListening}
               />
             )}
           </div>
 
-          {/* Final Transcript Display */}
-          {!isListening && transcript && !showResult && (
+          {/* Final Transcript */}
+          {!isListening && currentTranscript && !showResult && (
             <div className="mt-8 p-4 rounded-lg bg-muted/50 border border-border">
               <div className="flex items-center gap-2 mb-2">
                 <Volume2 className="w-5 h-5 text-accent" />
                 <span className="text-sm font-medium text-muted-foreground">Terdeteksi:</span>
               </div>
-              <p className="text-lg text-foreground">{transcript}</p>
+              <p className="text-lg text-foreground">{currentTranscript}</p>
             </div>
           )}
         </Card>
@@ -472,10 +520,6 @@ export const SpeechDetector = () => {
               <span className="text-accent">•</span>
               Berbicara dengan jelas dan tidak terlalu cepat
             </li>
-            <li className="flex items-start gap-2">
-              <span className="text-accent">•</span>
-              Pop-up akan muncul jika kata tidak baku terdeteksi
-            </li>
           </ul>
         </Card>
       </div>
@@ -484,8 +528,8 @@ export const SpeechDetector = () => {
       <ResultPopup 
         isOpen={showResult}
         isCorrect={isCorrect}
-        message={isCorrect ? 'Bahasa Indonesia Baku!' : errorMessage}
-        transcript={transcript || interimTranscript}
+        errors={detectedErrors}
+        transcript={currentTranscript}
         onClose={closeResult}
       />
     </div>
