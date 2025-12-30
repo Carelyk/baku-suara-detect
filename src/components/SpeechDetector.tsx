@@ -18,9 +18,9 @@ export const SpeechDetector = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const finalTranscriptRef = useRef('');
-  const interimTranscriptRef = useRef('');
   const lastFinalUtteranceRef = useRef('');
+  const processedFinalRef = useRef<Record<number, string>>({});
+  const hasShownResultRef = useRef(false);
 
   // Expanded informal to formal word mapping
   const informalWords: Record<string, string> = {
@@ -266,9 +266,9 @@ export const SpeechDetector = () => {
       setResultTranscript('');
       setShowResult(false);
       setDetectedErrors([]);
-      finalTranscriptRef.current = '';
-      interimTranscriptRef.current = '';
       lastFinalUtteranceRef.current = '';
+      processedFinalRef.current = {};
+      hasShownResultRef.current = false;
 
       recognition.onstart = () => {
         console.log('Speech recognition started');
@@ -280,7 +280,7 @@ export const SpeechDetector = () => {
         setStatusMessage('Berbicara...');
       };
 
-      recognition.onresult = (event: any) => {
+       recognition.onresult = (event: any) => {
         let interim = '';
 
         // Only process new results to avoid duplicated text
@@ -290,26 +290,29 @@ export const SpeechDetector = () => {
           if (!text) continue;
 
           if (result.isFinal) {
-            finalTranscriptRef.current = [finalTranscriptRef.current, text].filter(Boolean).join(' ').trim();
+            // Some browsers re-emit the same final result multiple times.
+            // Dedupe by (resultIndex + transcript).
+            if (processedFinalRef.current[i] === text) continue;
+            processedFinalRef.current[i] = text;
+
             lastFinalUtteranceRef.current = text;
 
             const errors = checkForInformalWords(text);
-            if (errors.length > 0) {
-              setDetectedErrors(prev => {
-                const next = [...prev];
-                errors.forEach(err => {
-                  if (!next.some(e => e.wrong === err.wrong)) next.push(err);
-                });
-                return next;
-              });
+            if (errors.length > 0 && !hasShownResultRef.current) {
+              hasShownResultRef.current = true;
+              setResultTranscript(text);
+              setIsCorrect(false);
+              setDetectedErrors(errors);
+              setShowResult(true);
+              stopListening();
+              return;
             }
           } else {
             interim = text;
           }
         }
 
-        interimTranscriptRef.current = interim;
-        const combined = [finalTranscriptRef.current, interim].filter(Boolean).join(' ').trim();
+        const combined = [lastFinalUtteranceRef.current, interim].filter(Boolean).join(' ').trim();
         setCurrentTranscript(combined);
       };
 
@@ -410,9 +413,9 @@ export const SpeechDetector = () => {
     setCurrentTranscript('');
     setResultTranscript('');
     setDetectedErrors([]);
-    finalTranscriptRef.current = '';
-    interimTranscriptRef.current = '';
     lastFinalUtteranceRef.current = '';
+    processedFinalRef.current = {};
+    hasShownResultRef.current = false;
   };
 
   useEffect(() => {
