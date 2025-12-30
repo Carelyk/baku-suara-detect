@@ -21,7 +21,7 @@ export const SpeechDetector = () => {
   const lastFinalUtteranceRef = useRef('');
   const processedFinalRef = useRef<Set<string>>(new Set());
   const hasShownResultRef = useRef(false);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Expanded informal to formal word mapping
   const informalWords: Record<string, string> = {
@@ -178,10 +178,10 @@ export const SpeechDetector = () => {
   const checkForInformalWords = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
-    
-    const foundInformal: Array<{wrong: string, correct: string}> = [];
+
+    const foundInformal: Array<{ wrong: string; correct: string }> = [];
     const seenWords = new Set<string>();
-    
+
     for (const word of words) {
       const cleanWord = word.replace(/[.,!?;:'"]/g, '');
       if (informalWords[cleanWord] !== undefined && !seenWords.has(cleanWord)) {
@@ -189,13 +189,50 @@ export const SpeechDetector = () => {
         const correction = informalWords[cleanWord];
         foundInformal.push({
           wrong: cleanWord,
-          correct: correction || '(hindari penggunaan kata ini)'
+          correct: correction || '(hindari penggunaan kata ini)',
         });
       }
     }
 
     return foundInformal;
   }, []);
+
+  const normalizeTranscript = useCallback((input: string) => {
+    const collapsed = input.replace(/\s+/g, ' ').trim();
+    if (!collapsed) return '';
+
+    const rawTokens = collapsed.split(' ');
+    const tokens: string[] = [];
+    const normTokens: string[] = [];
+
+    const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+    for (const token of rawTokens) {
+      const n = norm(token);
+      if (!n) continue;
+
+      // Remove consecutive repeated words (e.g., "tes tes tes" -> "tes")
+      if (normTokens.length > 0 && n === normTokens[normTokens.length - 1]) continue;
+
+      tokens.push(token);
+      normTokens.push(n);
+
+      // Remove consecutive repeated phrases (heuristic, 2-6 words)
+      for (let size = 6; size >= 2; size--) {
+        if (normTokens.length < size * 2) continue;
+        const a = normTokens.slice(normTokens.length - size).join('|');
+        const b = normTokens.slice(normTokens.length - size * 2, normTokens.length - size).join('|');
+        if (a === b) {
+          tokens.splice(tokens.length - size, size);
+          normTokens.splice(normTokens.length - size, size);
+          break;
+        }
+      }
+    }
+
+    return tokens.join(' ').replace(/\s+/g, ' ').trim();
+  }, []);
+
 
   const stopAudioStream = useCallback(() => {
     if (streamRef.current) {
@@ -289,39 +326,34 @@ export const SpeechDetector = () => {
           silenceTimerRef.current = null;
         }
 
-        let displayText = '';
+        // Only use the latest changed result to avoid accumulation/looping
+        const latest = event.results?.[event.results.length - 1];
+        const rawText = (latest?.[0]?.transcript || '').trim();
+        const cleanedText = normalizeTranscript(rawText);
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const text = (result?.[0]?.transcript || '').trim();
-          if (!text) continue;
+        if (cleanedText) {
+          setCurrentTranscript(cleanedText);
+        }
 
-          if (result.isFinal) {
-            // Dedupe by exact text to avoid repeats
-            if (processedFinalRef.current.has(text)) continue;
-            processedFinalRef.current.add(text);
+        // When we get a final utterance, validate that final (cleaned) text
+        if (latest?.isFinal && cleanedText) {
+          if (processedFinalRef.current.has(cleanedText)) {
+            // ignore duplicated final emission
+          } else {
+            processedFinalRef.current.add(cleanedText);
+            lastFinalUtteranceRef.current = cleanedText;
 
-            lastFinalUtteranceRef.current = text;
-            displayText = text;
-
-            const errors = checkForInformalWords(text);
+            const errors = checkForInformalWords(cleanedText);
             if (errors.length > 0 && !hasShownResultRef.current) {
               hasShownResultRef.current = true;
-              setResultTranscript(text);
+              setResultTranscript(cleanedText);
               setIsCorrect(false);
               setDetectedErrors(errors);
               setShowResult(true);
               stopListening();
               return;
             }
-          } else {
-            // Show only current interim (not accumulated)
-            displayText = text;
           }
-        }
-
-        if (displayText) {
-          setCurrentTranscript(displayText);
         }
 
         // Set silence timer - clear transcript after 2 seconds of no input
@@ -398,7 +430,7 @@ export const SpeechDetector = () => {
       
       stopAudioStream();
     }
-  }, [checkForInformalWords, stopAudioStream, stopListening]);
+  }, [checkForInformalWords, normalizeTranscript, stopAudioStream, stopListening]);
 
   const handleMicClick = () => {
     console.log('Mic clicked, isListening:', isListening);
@@ -406,7 +438,7 @@ export const SpeechDetector = () => {
     if (isListening) {
       stopListening();
 
-      const snapshot = (lastFinalUtteranceRef.current || currentTranscript || '').trim();
+      const snapshot = normalizeTranscript((lastFinalUtteranceRef.current || currentTranscript || '').trim());
       if (snapshot) {
         setResultTranscript(snapshot);
         const errors = checkForInformalWords(snapshot);
