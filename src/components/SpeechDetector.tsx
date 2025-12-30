@@ -19,8 +19,9 @@ export const SpeechDetector = () => {
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastFinalUtteranceRef = useRef('');
-  const processedFinalRef = useRef<Record<number, string>>({});
+  const processedFinalRef = useRef<Set<string>>(new Set());
   const hasShownResultRef = useRef(false);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Expanded informal to formal word mapping
   const informalWords: Record<string, string> = {
@@ -267,8 +268,9 @@ export const SpeechDetector = () => {
       setShowResult(false);
       setDetectedErrors([]);
       lastFinalUtteranceRef.current = '';
-      processedFinalRef.current = {};
+      processedFinalRef.current = new Set();
       hasShownResultRef.current = false;
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
       recognition.onstart = () => {
         console.log('Speech recognition started');
@@ -280,22 +282,27 @@ export const SpeechDetector = () => {
         setStatusMessage('Berbicara...');
       };
 
-       recognition.onresult = (event: any) => {
-        let interim = '';
+      recognition.onresult = (event: any) => {
+        // Clear silence timer on any new result
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
 
-        // Only process new results to avoid duplicated text
+        let displayText = '';
+
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
           const text = (result?.[0]?.transcript || '').trim();
           if (!text) continue;
 
           if (result.isFinal) {
-            // Some browsers re-emit the same final result multiple times.
-            // Dedupe by (resultIndex + transcript).
-            if (processedFinalRef.current[i] === text) continue;
-            processedFinalRef.current[i] = text;
+            // Dedupe by exact text to avoid repeats
+            if (processedFinalRef.current.has(text)) continue;
+            processedFinalRef.current.add(text);
 
             lastFinalUtteranceRef.current = text;
+            displayText = text;
 
             const errors = checkForInformalWords(text);
             if (errors.length > 0 && !hasShownResultRef.current) {
@@ -308,12 +315,21 @@ export const SpeechDetector = () => {
               return;
             }
           } else {
-            interim = text;
+            // Show only current interim (not accumulated)
+            displayText = text;
           }
         }
 
-        const combined = [lastFinalUtteranceRef.current, interim].filter(Boolean).join(' ').trim();
-        setCurrentTranscript(combined);
+        if (displayText) {
+          setCurrentTranscript(displayText);
+        }
+
+        // Set silence timer - clear transcript after 2 seconds of no input
+        silenceTimerRef.current = setTimeout(() => {
+          setCurrentTranscript('');
+          lastFinalUtteranceRef.current = '';
+          processedFinalRef.current = new Set();
+        }, 2000);
       };
 
       recognition.onerror = (event: any) => {
@@ -414,8 +430,9 @@ export const SpeechDetector = () => {
     setResultTranscript('');
     setDetectedErrors([]);
     lastFinalUtteranceRef.current = '';
-    processedFinalRef.current = {};
+    processedFinalRef.current = new Set();
     hasShownResultRef.current = false;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
   };
 
   useEffect(() => {
