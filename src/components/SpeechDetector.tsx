@@ -30,6 +30,10 @@ export const SpeechDetector = () => {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasShownResultRef = useRef(false);
 
+  // Robust transcript assembly to avoid Web Speech API duplication
+  const finalTranscriptRef = useRef('');
+  const finalHandledUpToRef = useRef(0);
+
   // Fallback informal word mapping (used if API fails)
   const informalWords: Record<string, string> = {
     gue: 'saya', gua: 'saya', gw: 'saya', aku: 'saya',
@@ -131,11 +135,16 @@ export const SpeechDetector = () => {
     return found;
   }, []);
 
+  type KbbiValidation = {
+    errors: Array<{ wrong: string; correct: string }>;
+    language: 'id' | 'non-id' | 'unknown';
+  };
+
   // Validate using KBBI Cloud Function (Lovable Cloud Function)
   const validateWithKBBI = useCallback(
-    async (text: string): Promise<Array<{ wrong: string; correct: string }>> => {
+    async (text: string): Promise<KbbiValidation> => {
       const cleaned = normalizeTranscript(text);
-      if (!cleaned) return [];
+      if (!cleaned) return { errors: [], language: 'unknown' };
 
       try {
         const { data, error } = await supabase.functions.invoke('validate-kbbi', {
@@ -147,14 +156,14 @@ export const SpeechDetector = () => {
           throw error;
         }
 
-        if (data && data.isValid === false && Array.isArray(data.errors)) {
-          return data.errors;
-        }
+        const language: KbbiValidation['language'] =
+          data?.language === 'id' || data?.language === 'non-id' ? data.language : 'unknown';
 
-        return [];
+        const errors = data && data.isValid === false && Array.isArray(data.errors) ? data.errors : [];
+        return { errors, language };
       } catch (err: any) {
         console.error('Failed to validate with KBBI API, using fallback:', err);
-        return checkForInformalWordsLocal(cleaned);
+        return { errors: checkForInformalWordsLocal(cleaned), language: 'unknown' };
       }
     },
     [normalizeTranscript, checkForInformalWordsLocal],
@@ -193,7 +202,7 @@ export const SpeechDetector = () => {
     stopAudioStream();
   }, [stopAudioStream]);
 
-  // Process and validate a complete sentence (always shows result)
+  // Process and validate a complete sentence
   const processSentence = useCallback(
     async (sentenceRaw: string) => {
       const sentence = normalizeTranscript(sentenceRaw);
@@ -204,22 +213,44 @@ export const SpeechDetector = () => {
       setStatusMessage('Memvalidasi dengan KBBI...');
       setResultTranscript(sentence);
 
+      // Always clear the live transcript when we move to the popup phase
+      setCurrentTranscript('');
+      sentenceBufferRef.current = '';
+      currentSentenceRef.current = '';
+      finalTranscriptRef.current = '';
+      finalHandledUpToRef.current = 0;
+
+      let shouldShowResult = true;
+
       try {
-        const errors = await validateWithKBBI(sentence);
-        setDetectedErrors(errors);
-        setIsCorrect(errors.length === 0);
+        const { errors, language } = await validateWithKBBI(sentence);
+
+        // If the backend says it's not Indonesian, skip showing the popup
+        if (language === 'non-id') {
+          toast({
+            title: 'Bahasa tidak didukung',
+            description: 'Terdeteksi bahasa non-Indonesia. Silakan gunakan Bahasa Indonesia.',
+          });
+          shouldShowResult = false;
+          setDetectedErrors([]);
+          setIsCorrect(false);
+          hasShownResultRef.current = false;
+        } else {
+          setDetectedErrors(errors);
+          setIsCorrect(errors.length === 0);
+        }
       } catch (err) {
         console.error('Validation error:', err);
-        const fallbackErrors = checkForInformalWordsLocal(sentence);
-        setDetectedErrors(fallbackErrors);
-        setIsCorrect(fallbackErrors.length === 0);
+        // validateWithKBBI already falls back; keep a safe empty fallback here
+        setDetectedErrors([]);
+        setIsCorrect(true);
       } finally {
         setIsValidating(false);
         setStatusMessage('');
-        setShowResult(true);
+        setShowResult(shouldShowResult);
       }
     },
-    [normalizeTranscript, validateWithKBBI, checkForInformalWordsLocal],
+    [normalizeTranscript, validateWithKBBI],
   );
 
   const startListening = useCallback(async () => {
@@ -267,6 +298,8 @@ export const SpeechDetector = () => {
       setIsCorrect(false);
       sentenceBufferRef.current = '';
       currentSentenceRef.current = '';
+      finalTranscriptRef.current = '';
+      finalHandledUpToRef.current = 0;
       hasShownResultRef.current = false;
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
@@ -290,18 +323,35 @@ export const SpeechDetector = () => {
           silenceTimerRef.current = null;
         }
 
-        // IMPORTANT: only read the changed result to avoid cumulative duplication
-        const result = event.results?.[event.resultIndex];
-        const rawText = (result?.[0]?.transcript || '').trim();
-        const cleanedText = normalizeTranscript(rawText);
+        const results: SpeechRecognitionResultList | undefined = event.results;
+        if (!results) return;
 
-        if (cleanedText) {
-          currentSentenceRef.current = cleanedText;
-          setCurrentTranscript(cleanedText);
+        // Build transcript from incremental final + current interim to avoid repetition
+        let interim = '';
+        for (let i = event.resultIndex; i < results.length; i++) {
+          const res = results[i];
+          const txt = (res?.[0]?.transcript || '').trim();
+          if (!txt) continue;
+
+          if (res.isFinal) {
+            if (i >= finalHandledUpToRef.current) {
+              finalTranscriptRef.current = `${finalTranscriptRef.current} ${txt}`.trim();
+              finalHandledUpToRef.current = i + 1;
+            }
+          } else {
+            interim = `${interim} ${txt}`.trim();
+          }
         }
 
-        if (result?.isFinal && cleanedText) {
-          sentenceBufferRef.current = cleanedText;
+        const combined = normalizeTranscript(`${finalTranscriptRef.current} ${interim}`.trim());
+
+        if (combined) {
+          currentSentenceRef.current = combined;
+          setCurrentTranscript(combined);
+        }
+
+        if (finalTranscriptRef.current) {
+          sentenceBufferRef.current = normalizeTranscript(finalTranscriptRef.current);
         }
 
         const delayMs = sentenceMode ? 1000 : 2000;
@@ -310,6 +360,8 @@ export const SpeechDetector = () => {
             setCurrentTranscript('');
             sentenceBufferRef.current = '';
             currentSentenceRef.current = '';
+            finalTranscriptRef.current = '';
+            finalHandledUpToRef.current = 0;
             return;
           }
 
@@ -322,6 +374,8 @@ export const SpeechDetector = () => {
           setCurrentTranscript('');
           sentenceBufferRef.current = '';
           currentSentenceRef.current = '';
+          finalTranscriptRef.current = '';
+          finalHandledUpToRef.current = 0;
         }, delayMs);
       };
 
@@ -419,9 +473,27 @@ export const SpeechDetector = () => {
     setIsCorrect(false);
     sentenceBufferRef.current = '';
     currentSentenceRef.current = '';
+    finalTranscriptRef.current = '';
+    finalHandledUpToRef.current = 0;
     hasShownResultRef.current = false;
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
   };
+
+  useEffect(() => {
+    // Ensure transcript always resets when the result popup appears
+    if (!showResult) return;
+
+    setCurrentTranscript('');
+    sentenceBufferRef.current = '';
+    currentSentenceRef.current = '';
+    finalTranscriptRef.current = '';
+    finalHandledUpToRef.current = 0;
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, [showResult]);
 
   useEffect(() => {
     return () => {
