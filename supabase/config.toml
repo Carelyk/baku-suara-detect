@@ -1,0 +1,4 @@
+project_id = "bywkvolcgvprcpbfwhvu"
+
+[functions.validate-kbbi]
+verify_jwt = false

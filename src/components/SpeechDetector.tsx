@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, Volume2, AlertCircle, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
 import { LiveTranscript } from './LiveTranscript';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export const SpeechDetector = () => {
   const [isListening, setIsListening] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [resultTranscript, setResultTranscript] = useState('');
   const [showResult, setShowResult] = useState(false);
@@ -18,149 +20,40 @@ export const SpeechDetector = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const lastFinalUtteranceRef = useRef('');
-  const processedFinalRef = useRef<Set<string>>(new Set());
-  const hasShownResultRef = useRef(false);
+  const sentenceBufferRef = useRef('');
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasShownResultRef = useRef(false);
+  const currentSentenceRef = useRef('');
 
-  // Expanded informal to formal word mapping
+  // Fallback informal word mapping (used if API fails)
   const informalWords: Record<string, string> = {
-    // Pronouns
-    'gue': 'saya',
-    'gua': 'saya',
-    'gw': 'saya',
-    'aku': 'saya',
-    'lo': 'kamu',
-    'lu': 'kamu',
-    'elu': 'kamu',
-    'loe': 'kamu',
-    
-    // Negation
-    'kagak': 'tidak',
-    'gak': 'tidak',
-    'nggak': 'tidak',
-    'enggak': 'tidak',
-    'ga': 'tidak',
-    'ngga': 'tidak',
-    'tak': 'tidak',
-    
-    // Time/State
-    'udah': 'sudah',
-    'udeh': 'sudah',
-    'dah': 'sudah',
-    'belom': 'belum',
-    'blm': 'belum',
-    'lagi': 'sedang',
-    'lg': 'sedang',
-    
-    // Question words
-    'gimana': 'bagaimana',
-    'gmn': 'bagaimana',
-    'kok': 'mengapa',
-    'kenapa': 'mengapa',
-    'knp': 'mengapa',
-    'dimana': 'di mana',
-    'dmn': 'di mana',
-    'kemana': 'ke mana',
-    'kmn': 'ke mana',
-    
-    // Demonstratives
-    'gitu': 'begitu',
-    'gini': 'begini',
-    'nih': '',
-    'tuh': '',
-    
-    // Adverbs
-    'emang': 'memang',
-    'emg': 'memang',
-    'banget': 'sangat',
-    'bgt': 'sangat',
-    'amat': 'sangat',
-    
-    // Only/Just
-    'aja': 'saja',
-    'doang': 'saja',
-    'cuma': 'hanya',
-    'cuman': 'hanya',
-    'cmn': 'hanya',
-    
-    // Comparison
-    'kayak': 'seperti',
-    'kaya': 'seperti',
-    'kek': 'seperti',
-    
-    // Verbs
-    'bikin': 'membuat',
-    'bkin': 'membuat',
-    'ngomong': 'berbicara',
-    'bilang': 'mengatakan',
-    'blg': 'mengatakan',
-    'nyari': 'mencari',
-    'mau': 'ingin',
-    'pengen': 'ingin',
-    'pgn': 'ingin',
-    'bisa': 'dapat',
-    'bs': 'dapat',
-    'pake': 'menggunakan',
-    'pakai': 'menggunakan',
-    'punya': 'memiliki',
-    'tau': 'mengetahui',
-    'tw': 'mengetahui',
-    'ngerti': 'mengerti',
-    'nanya': 'bertanya',
-    'kasih': 'memberikan',
-    'liat': 'melihat',
-    'denger': 'mendengar',
-    'mikir': 'berpikir',
-    'ngerjain': 'mengerjakan',
-    'kerjain': 'mengerjakan',
-    
-    // Conjunctions/Prepositions
-    'sama': 'dengan',
-    'ama': 'dengan',
-    'ma': 'dengan',
-    'buat': 'untuk',
-    'bt': 'untuk',
-    
-    // Sequence
-    'abis': 'setelah',
-    'habis': 'setelah',
-    'terus': 'kemudian',
-    'trus': 'kemudian',
-    'trs': 'kemudian',
-    
-    // Particles (should be avoided)
-    'dong': '',
-    'deh': '',
-    'sih': '',
-    'lah': '',
-    'kan': '',
-    'dongs': '',
-    
-    // Slang
-    'asik': 'menyenangkan',
-    'asyik': 'menyenangkan',
-    'keren': 'bagus',
-    'gokil': 'luar biasa',
-    'mantap': 'bagus',
-    'mantep': 'bagus',
-    'anjir': '',
-    'anjay': '',
-    'wkwk': '',
-    
-    // Common informal
-    'yg': 'yang',
-    'dgn': 'dengan',
-    'utk': 'untuk',
-    'krn': 'karena',
-    'krna': 'karena',
-    'soalnya': 'karena',
-    'jd': 'jadi',
-    'jgn': 'jangan',
-    'hrs': 'harus',
-    'blh': 'boleh',
-    'ato': 'atau',
-    'atw': 'atau',
+    'gue': 'saya', 'gua': 'saya', 'gw': 'saya', 'aku': 'saya',
+    'lo': 'kamu', 'lu': 'kamu', 'elu': 'kamu', 'loe': 'kamu',
+    'kagak': 'tidak', 'gak': 'tidak', 'nggak': 'tidak', 'enggak': 'tidak', 'ga': 'tidak', 'ngga': 'tidak',
+    'udah': 'sudah', 'udeh': 'sudah', 'dah': 'sudah',
+    'belom': 'belum', 'blm': 'belum',
+    'gimana': 'bagaimana', 'gmn': 'bagaimana',
+    'kok': 'mengapa', 'kenapa': 'mengapa', 'knp': 'mengapa',
+    'gitu': 'begitu', 'gini': 'begini',
+    'emang': 'memang', 'emg': 'memang',
+    'banget': 'sangat', 'bgt': 'sangat',
+    'aja': 'saja', 'doang': 'saja',
+    'cuma': 'hanya', 'cuman': 'hanya',
+    'kayak': 'seperti', 'kaya': 'seperti', 'kek': 'seperti',
+    'bikin': 'membuat', 'ngomong': 'berbicara',
+    'bilang': 'mengatakan', 'nyari': 'mencari',
+    'mau': 'ingin', 'pengen': 'ingin', 'pgn': 'ingin',
+    'pake': 'menggunakan', 'pakai': 'menggunakan',
+    'punya': 'memiliki', 'tau': 'mengetahui',
+    'ngerti': 'mengerti', 'nanya': 'bertanya',
+    'kasih': 'memberikan', 'liat': 'melihat',
+    'denger': 'mendengar', 'mikir': 'berpikir',
+    'sama': 'dengan', 'ama': 'dengan',
+    'buat': 'untuk', 'abis': 'setelah', 'habis': 'setelah',
+    'terus': 'kemudian', 'trus': 'kemudian',
+    'dong': '', 'deh': '', 'sih': '', 'lah': '', 'kan': '', 'nih': '', 'tuh': '',
+    'yg': 'yang', 'dgn': 'dengan', 'utk': 'untuk', 'krn': 'karena',
+    'jd': 'jadi', 'jgn': 'jangan', 'hrs': 'harus', 'blh': 'boleh',
   };
 
   useEffect(() => {
@@ -175,10 +68,34 @@ export const SpeechDetector = () => {
     }
   }, []);
 
-  const checkForInformalWords = useCallback((text: string) => {
+  // Validate using KBBI Cloud Function
+  const validateWithKBBI = useCallback(async (text: string): Promise<Array<{ wrong: string; correct: string }>> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('validate-kbbi', {
+        body: { text }
+      });
+      
+      if (error) {
+        console.error('KBBI validation error:', error);
+        throw error;
+      }
+      
+      if (data && !data.isValid && Array.isArray(data.errors)) {
+        return data.errors;
+      }
+      
+      return [];
+    } catch (err) {
+      console.error('Failed to validate with KBBI API, using fallback:', err);
+      // Fallback to local validation
+      return checkForInformalWordsLocal(text);
+    }
+  }, []);
+
+  // Local fallback validation
+  const checkForInformalWordsLocal = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
-
     const foundInformal: Array<{ wrong: string; correct: string }> = [];
     const seenWords = new Set<string>();
 
@@ -193,46 +110,8 @@ export const SpeechDetector = () => {
         });
       }
     }
-
     return foundInformal;
   }, []);
-
-  const normalizeTranscript = useCallback((input: string) => {
-    const collapsed = input.replace(/\s+/g, ' ').trim();
-    if (!collapsed) return '';
-
-    const rawTokens = collapsed.split(' ');
-    const tokens: string[] = [];
-    const normTokens: string[] = [];
-
-    const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-
-    for (const token of rawTokens) {
-      const n = norm(token);
-      if (!n) continue;
-
-      // Remove consecutive repeated words (e.g., "tes tes tes" -> "tes")
-      if (normTokens.length > 0 && n === normTokens[normTokens.length - 1]) continue;
-
-      tokens.push(token);
-      normTokens.push(n);
-
-      // Remove consecutive repeated phrases (heuristic, 2-6 words)
-      for (let size = 6; size >= 2; size--) {
-        if (normTokens.length < size * 2) continue;
-        const a = normTokens.slice(normTokens.length - size).join('|');
-        const b = normTokens.slice(normTokens.length - size * 2, normTokens.length - size).join('|');
-        if (a === b) {
-          tokens.splice(tokens.length - size, size);
-          normTokens.splice(normTokens.length - size, size);
-          break;
-        }
-      }
-    }
-
-    return tokens.join(' ').replace(/\s+/g, ' ').trim();
-  }, []);
-
 
   const stopAudioStream = useCallback(() => {
     if (streamRef.current) {
@@ -246,6 +125,11 @@ export const SpeechDetector = () => {
     console.log('Stopping listening...');
     setIsListening(false);
     setStatusMessage('');
+    
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     
     if (recognitionRef.current) {
       try {
@@ -261,6 +145,33 @@ export const SpeechDetector = () => {
     
     stopAudioStream();
   }, [stopAudioStream]);
+
+  // Process and validate a complete sentence
+  const processSentence = useCallback(async (sentence: string) => {
+    if (!sentence.trim() || hasShownResultRef.current) return;
+    
+    console.log('Processing sentence:', sentence);
+    setIsValidating(true);
+    setStatusMessage('Memvalidasi dengan KBBI...');
+    
+    try {
+      const errors = await validateWithKBBI(sentence);
+      
+      if (errors.length > 0) {
+        hasShownResultRef.current = true;
+        setResultTranscript(sentence);
+        setIsCorrect(false);
+        setDetectedErrors(errors);
+        setShowResult(true);
+        stopListening();
+      }
+    } catch (err) {
+      console.error('Validation error:', err);
+    } finally {
+      setIsValidating(false);
+      setStatusMessage(hasShownResultRef.current ? '' : 'Mendengarkan... Silakan berbicara');
+    }
+  }, [validateWithKBBI, stopListening]);
 
   const startListening = useCallback(async () => {
     console.log('Starting listening...');
@@ -304,8 +215,8 @@ export const SpeechDetector = () => {
       setResultTranscript('');
       setShowResult(false);
       setDetectedErrors([]);
-      lastFinalUtteranceRef.current = '';
-      processedFinalRef.current = new Set();
+      sentenceBufferRef.current = '';
+      currentSentenceRef.current = '';
       hasShownResultRef.current = false;
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
@@ -317,51 +228,63 @@ export const SpeechDetector = () => {
       recognition.onspeechstart = () => {
         console.log('Speech started');
         setStatusMessage('Berbicara...');
+        // Clear silence timer when speech starts
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
       };
 
       recognition.onresult = (event: any) => {
-        // Clear silence timer on any new result
+        // Clear existing silence timer
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = null;
         }
 
-        // Only use the latest changed result to avoid accumulation/looping
-        const latest = event.results?.[event.results.length - 1];
-        const rawText = (latest?.[0]?.transcript || '').trim();
-        const cleanedText = normalizeTranscript(rawText);
-
-        if (cleanedText) {
-          setCurrentTranscript(cleanedText);
-        }
-
-        // When we get a final utterance, validate that final (cleaned) text
-        if (latest?.isFinal && cleanedText) {
-          if (processedFinalRef.current.has(cleanedText)) {
-            // ignore duplicated final emission
+        // Get only the current result (not accumulated)
+        let interimText = '';
+        let finalText = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const transcript = result[0].transcript.trim();
+          
+          if (result.isFinal) {
+            finalText = transcript;
           } else {
-            processedFinalRef.current.add(cleanedText);
-            lastFinalUtteranceRef.current = cleanedText;
-
-            const errors = checkForInformalWords(cleanedText);
-            if (errors.length > 0 && !hasShownResultRef.current) {
-              hasShownResultRef.current = true;
-              setResultTranscript(cleanedText);
-              setIsCorrect(false);
-              setDetectedErrors(errors);
-              setShowResult(true);
-              stopListening();
-              return;
-            }
+            interimText = transcript;
           }
         }
 
-        // Set silence timer - clear transcript after 2 seconds of no input
+        // Display only the current sentence being spoken (not accumulated)
+        const displayText = finalText || interimText;
+        if (displayText) {
+          currentSentenceRef.current = displayText;
+          setCurrentTranscript(displayText);
+        }
+
+        // When we get a final result, process it
+        if (finalText) {
+          sentenceBufferRef.current = finalText;
+        }
+
+        // Auto-stop after silence (sentence detection mode: ~1000ms)
         silenceTimerRef.current = setTimeout(() => {
+          const sentence = sentenceBufferRef.current || currentSentenceRef.current;
+          if (sentence.trim() && !hasShownResultRef.current) {
+            processSentence(sentence.trim());
+          }
+          // Clear transcript after 2 seconds of silence
           setCurrentTranscript('');
-          lastFinalUtteranceRef.current = '';
-          processedFinalRef.current = new Set();
-        }, 2000);
+          sentenceBufferRef.current = '';
+          currentSentenceRef.current = '';
+        }, 1000);
+      };
+
+      recognition.onspeechend = () => {
+        console.log('Speech ended');
+        setStatusMessage('Jeda terdeteksi...');
       };
 
       recognition.onerror = (event: any) => {
@@ -394,7 +317,6 @@ export const SpeechDetector = () => {
         }
       };
 
-      // NO auto-restart - mic turns off when recognition ends
       recognition.onend = () => {
         console.log('Recognition ended');
         // Don't auto-restart, let user control
@@ -430,26 +352,42 @@ export const SpeechDetector = () => {
       
       stopAudioStream();
     }
-  }, [checkForInformalWords, normalizeTranscript, stopAudioStream, stopListening]);
+  }, [processSentence, stopAudioStream, stopListening]);
 
-  const handleMicClick = () => {
+  const handleMicClick = async () => {
     console.log('Mic clicked, isListening:', isListening);
     
     if (isListening) {
       stopListening();
 
-      const snapshot = normalizeTranscript((lastFinalUtteranceRef.current || currentTranscript || '').trim());
-      if (snapshot) {
-        setResultTranscript(snapshot);
-        const errors = checkForInformalWords(snapshot);
-        if (errors.length > 0) {
-          setIsCorrect(false);
+      const sentence = (sentenceBufferRef.current || currentSentenceRef.current || '').trim();
+      if (sentence && !hasShownResultRef.current) {
+        setIsValidating(true);
+        setStatusMessage('Memvalidasi...');
+        
+        try {
+          const errors = await validateWithKBBI(sentence);
+          setResultTranscript(sentence);
+          if (errors.length > 0) {
+            setIsCorrect(false);
+            setDetectedErrors(errors);
+          } else {
+            setIsCorrect(true);
+            setDetectedErrors([]);
+          }
+          setShowResult(true);
+        } catch (err) {
+          console.error('Final validation error:', err);
+          // Fallback to local
+          const errors = checkForInformalWordsLocal(sentence);
+          setResultTranscript(sentence);
+          setIsCorrect(errors.length === 0);
           setDetectedErrors(errors);
-        } else {
-          setIsCorrect(true);
-          setDetectedErrors([]);
+          setShowResult(true);
+        } finally {
+          setIsValidating(false);
+          setStatusMessage('');
         }
-        setShowResult(true);
       }
     } else {
       startListening();
@@ -461,8 +399,8 @@ export const SpeechDetector = () => {
     setCurrentTranscript('');
     setResultTranscript('');
     setDetectedErrors([]);
-    lastFinalUtteranceRef.current = '';
-    processedFinalRef.current = new Set();
+    sentenceBufferRef.current = '';
+    currentSentenceRef.current = '';
     hasShownResultRef.current = false;
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
   };
@@ -474,6 +412,7 @@ export const SpeechDetector = () => {
           recognitionRef.current.stop();
         } catch (e) {}
       }
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       stopAudioStream();
     };
   }, [stopAudioStream]);
@@ -520,14 +459,16 @@ export const SpeechDetector = () => {
               <button
                 type="button"
                 onClick={handleMicClick}
-                disabled={!browserSupported}
+                disabled={!browserSupported || isValidating}
                 className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer border-0 outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                   isListening 
                     ? 'bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30' 
                     : 'bg-secondary hover:bg-secondary/90 shadow-lg shadow-secondary/30'
                 }`}
               >
-                {isListening ? (
+                {isValidating ? (
+                  <Loader2 className="w-12 h-12 text-secondary-foreground animate-spin" />
+                ) : isListening ? (
                   <MicOff className="w-12 h-12 text-accent-foreground" />
                 ) : (
                   <Mic className="w-12 h-12 text-secondary-foreground" />
@@ -537,7 +478,7 @@ export const SpeechDetector = () => {
 
             <div className="text-center">
               <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
-                {isListening ? 'Tekan untuk berhenti' : 'Tekan untuk mulai'}
+                {isValidating ? 'Memvalidasi...' : isListening ? 'Tekan untuk berhenti' : 'Tekan untuk mulai'}
               </p>
               {statusMessage && (
                 <p className="text-sm text-muted-foreground mt-1">{statusMessage}</p>
@@ -583,6 +524,10 @@ export const SpeechDetector = () => {
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
               Berbicara dengan jelas dan tidak terlalu cepat
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-accent">•</span>
+              Jeda 1 detik untuk auto-validasi per kalimat
             </li>
           </ul>
         </Card>
