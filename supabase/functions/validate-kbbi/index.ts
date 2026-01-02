@@ -33,7 +33,12 @@ serve(async (req) => {
 
     const systemPrompt = `Kamu adalah validator Bahasa Indonesia Baku berdasarkan KBBI (Kamus Besar Bahasa Indonesia).
 
-Tugasmu adalah menganalisis teks yang diberikan dan mendeteksi kata-kata yang TIDAK BAKU, termasuk:
+TUGAS PERTAMA (WAJIB): Tentukan apakah teks yang diberikan mayoritas adalah Bahasa Indonesia.
+- Jika teks mayoritas BUKAN Bahasa Indonesia (misalnya Inggris/asing), JANGAN lakukan koreksi KBBI.
+- Dalam kasus non-Indonesia, kembalikan JSON:
+  { "isValid": true, "errors": [], "language": "non-id" }
+
+Jika teks adalah Bahasa Indonesia, lakukan deteksi kata-kata yang TIDAK BAKU, termasuk:
 1. Kata slang/gaul (contoh: gue, lu, gak, udah, gimana, dll)
 2. Kata dari bahasa daerah yang bukan Bahasa Indonesia baku
 3. Singkatan tidak resmi (contoh: yg, dgn, krn, dll)
@@ -46,11 +51,12 @@ Berikan respons dalam format JSON dengan struktur:
   "isValid": boolean,
   "errors": [
     { "wrong": "kata tidak baku", "correct": "kata baku yang benar" }
-  ]
+  ],
+  "language": "id" | "non-id"
 }
 
 Jika semua kata sudah baku, kembalikan:
-{ "isValid": true, "errors": [] }
+{ "isValid": true, "errors": [], "language": "id" }
 
 Jika ada kata tidak baku, kembalikan contoh koreksinya.
 Jika kata harus dihindari tanpa pengganti (seperti partikel "dong", "sih"), gunakan "(hindari penggunaan kata ini)" sebagai koreksi.`;
@@ -100,7 +106,7 @@ Jika kata harus dihindari tanpa pengganti (seperti partikel "dong", "sih"), guna
     console.log("AI response:", content);
 
     // Parse JSON from AI response
-    let result = { isValid: true, errors: [] };
+    let result: { isValid: boolean; errors: any[]; language?: string } = { isValid: true, errors: [], language: "id" };
     try {
       // Extract JSON from potential markdown code blocks
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -110,6 +116,11 @@ Jika kata harus dihindari tanpa pengganti (seperti partikel "dong", "sih"), guna
     } catch (parseError) {
       console.error("Failed to parse AI response:", parseError);
       // Fallback: assume valid if we can't parse
+    }
+
+    // Normalize/validate language output
+    if (result.language !== "id" && result.language !== "non-id") {
+      result.language = "id";
     }
 
     return new Response(
