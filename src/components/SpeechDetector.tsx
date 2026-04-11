@@ -1,14 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
 import { Mic, MicOff, Volume2, AlertCircle, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
 import { LiveTranscript } from './LiveTranscript';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
-export const SpeechDetector = () => {
+export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [isListening, setIsListening] = useState(false);
   const [sentenceMode, setSentenceMode] = useState(true);
   const [isValidating, setIsValidating] = useState(false);
@@ -24,17 +23,14 @@ export const SpeechDetector = () => {
   const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Holds the latest sentence candidate (final preferred)
   const sentenceBufferRef = useRef('');
   const currentSentenceRef = useRef('');
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasShownResultRef = useRef(false);
 
-  // Robust transcript assembly to avoid Web Speech API duplication
   const finalTranscriptRef = useRef('');
   const finalHandledUpToRef = useRef(0);
 
-  // Fallback informal word mapping (used if API fails)
   const informalWords: Record<string, string> = {
     gue: 'saya', gua: 'saya', gw: 'saya', aku: 'saya',
     lo: 'kamu', lu: 'kamu', elu: 'kamu', loe: 'kamu',
@@ -77,7 +73,6 @@ export const SpeechDetector = () => {
     }
   }, []);
 
-  // Collapses repeated words/phrases that often appear in Web Speech API results.
   const normalizeTranscript = useCallback((input: string) => {
     const collapsed = input.replace(/\s+/g, ' ').trim();
     if (!collapsed) return '';
@@ -91,14 +86,11 @@ export const SpeechDetector = () => {
     for (const token of rawTokens) {
       const n = norm(token);
       if (!n) continue;
-
-      // Remove consecutive repeated words
       if (normTokens.length > 0 && n === normTokens[normTokens.length - 1]) continue;
 
       tokens.push(token);
       normTokens.push(n);
 
-      // Remove consecutive repeated phrases (2–6 words)
       for (let size = 6; size >= 2; size--) {
         if (normTokens.length < size * 2) continue;
         const a = normTokens.slice(normTokens.length - size).join('|');
@@ -140,7 +132,6 @@ export const SpeechDetector = () => {
     language: 'id' | 'non-id' | 'unknown';
   };
 
-  // Validate using KBBI Cloud Function (Lovable Cloud Function)
   const validateWithKBBI = useCallback(
     async (text: string): Promise<KbbiValidation> => {
       const cleaned = normalizeTranscript(text);
@@ -178,7 +169,6 @@ export const SpeechDetector = () => {
   }, []);
 
   const stopListening = useCallback(() => {
-    console.log('Stopping listening...');
     setIsListening(false);
     setStatusMessage('');
 
@@ -202,7 +192,6 @@ export const SpeechDetector = () => {
     stopAudioStream();
   }, [stopAudioStream]);
 
-  // Process and validate a complete sentence
   const processSentence = useCallback(
     async (sentenceRaw: string) => {
       const sentence = normalizeTranscript(sentenceRaw);
@@ -213,7 +202,6 @@ export const SpeechDetector = () => {
       setStatusMessage('Memvalidasi dengan KBBI...');
       setResultTranscript(sentence);
 
-      // Always clear the live transcript when we move to the popup phase
       setCurrentTranscript('');
       sentenceBufferRef.current = '';
       currentSentenceRef.current = '';
@@ -225,7 +213,6 @@ export const SpeechDetector = () => {
       try {
         const { errors, language } = await validateWithKBBI(sentence);
 
-        // If the backend says it's not Indonesian, skip showing the popup
         if (language === 'non-id') {
           toast({
             title: 'Bahasa tidak didukung',
@@ -241,7 +228,6 @@ export const SpeechDetector = () => {
         }
       } catch (err) {
         console.error('Validation error:', err);
-        // validateWithKBBI already falls back; keep a safe empty fallback here
         setDetectedErrors([]);
         setIsCorrect(true);
       } finally {
@@ -254,7 +240,6 @@ export const SpeechDetector = () => {
   );
 
   const startListening = useCallback(async () => {
-    console.log('Starting listening...');
     setStatusMessage('Meminta izin mikrofon...');
 
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -277,7 +262,6 @@ export const SpeechDetector = () => {
         },
       });
 
-      console.log('Microphone access granted');
       streamRef.current = stream;
       setAudioStream(stream);
       setStatusMessage('Mikrofon aktif, mulai berbicara...');
@@ -290,7 +274,6 @@ export const SpeechDetector = () => {
 
       recognitionRef.current = recognition;
 
-      // Reset state
       setCurrentTranscript('');
       setResultTranscript('');
       setShowResult(false);
@@ -304,12 +287,10 @@ export const SpeechDetector = () => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
       recognition.onstart = () => {
-        console.log('Speech recognition started');
         setStatusMessage('Mendengarkan... Silakan berbicara');
       };
 
       recognition.onspeechstart = () => {
-        console.log('Speech started');
         setStatusMessage('Berbicara...');
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
@@ -326,7 +307,6 @@ export const SpeechDetector = () => {
         const results: SpeechRecognitionResultList | undefined = event.results;
         if (!results) return;
 
-        // Build transcript from incremental final + current interim to avoid repetition
         let interim = '';
         for (let i = event.resultIndex; i < results.length; i++) {
           const res = results[i];
@@ -380,7 +360,6 @@ export const SpeechDetector = () => {
       };
 
       recognition.onspeechend = () => {
-        console.log('Speech ended');
         setStatusMessage('Jeda terdeteksi...');
       };
 
@@ -414,14 +393,10 @@ export const SpeechDetector = () => {
         }
       };
 
-      recognition.onend = () => {
-        console.log('Recognition ended');
-        // Don't auto-restart, let user control
-      };
+      recognition.onend = () => {};
 
       recognition.start();
       setIsListening(true);
-      console.log('Recognition started');
     } catch (err: any) {
       console.error('Error starting:', err);
       setStatusMessage('');
@@ -451,8 +426,6 @@ export const SpeechDetector = () => {
   }, [normalizeTranscript, sentenceMode, processSentence, stopAudioStream, stopListening]);
 
   const handleMicClick = async () => {
-    console.log('Mic clicked, isListening:', isListening);
-
     if (isListening) {
       stopListening();
       const sentence = (sentenceBufferRef.current || currentSentenceRef.current || currentTranscript).trim();
@@ -480,7 +453,6 @@ export const SpeechDetector = () => {
   };
 
   useEffect(() => {
-    // Ensure transcript always resets when the result popup appears
     if (!showResult) return;
 
     setCurrentTranscript('');
@@ -507,25 +479,25 @@ export const SpeechDetector = () => {
     };
   }, [stopAudioStream]);
 
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-b from-secondary/30 to-background">
-      <div className="w-full max-w-2xl space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-bold text-foreground">
+    <div
+      ref={ref}
+      className="min-h-screen overflow-x-hidden bg-gradient-to-b from-secondary/30 to-background px-4 pb-6 pt-24 sm:flex sm:flex-col sm:items-center sm:justify-center sm:px-6 sm:py-8"
+    >
+      <div className="w-full max-w-2xl space-y-6 sm:space-y-8">
+        <div className="space-y-2 text-center sm:space-y-3">
+          <h1 className="text-2xl font-bold leading-tight text-foreground sm:text-4xl">
             Deteksi Bahasa Indonesia Baku
           </h1>
-          <p className="text-muted-foreground text-lg">
+          <p className="mx-auto max-w-xl text-sm text-muted-foreground sm:text-lg">
             Tekan tombol mikrofon dan mulai berbicara dalam Bahasa Indonesia yang baku
           </p>
         </div>
 
-        {/* Browser Warning */}
         {!browserSupported && (
-          <Card className="p-4 bg-destructive/10 border-destructive/50">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="w-6 h-6 text-destructive" />
+          <Card className="border-destructive/50 bg-destructive/10 p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive sm:h-6 sm:w-6" />
               <div>
                 <p className="font-medium text-destructive">Browser Tidak Didukung</p>
                 <p className="text-sm text-muted-foreground">
@@ -536,96 +508,85 @@ export const SpeechDetector = () => {
           </Card>
         )}
 
-        {/* Main Card */}
-        <Card className="p-8 bg-card shadow-xl border-secondary/50">
-          <div className="flex flex-col items-center space-y-6">
-            {/* Mic Button */}
+        <Card className="border-secondary/50 bg-card p-5 shadow-xl sm:p-8">
+          <div className="flex flex-col items-center space-y-5 sm:space-y-6">
             <div className="relative">
               {isListening && (
                 <>
-                  <div className="absolute inset-0 rounded-full bg-accent/30 pulse-ring" />
-                  <div className="absolute inset-0 rounded-full bg-accent/20 pulse-ring" style={{ animationDelay: '0.5s' }} />
+                  <div className="pulse-ring absolute inset-0 rounded-full bg-accent/30" />
+                  <div className="pulse-ring absolute inset-0 rounded-full bg-accent/20" style={{ animationDelay: '0.5s' }} />
                 </>
               )}
               <button
                 type="button"
+                aria-label={isListening ? 'Hentikan rekaman' : 'Mulai rekaman'}
                 onClick={handleMicClick}
                 disabled={!browserSupported || isValidating}
-                className={`w-32 h-32 rounded-full transition-all duration-300 flex items-center justify-center cursor-pointer border-0 outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isListening 
-                    ? 'bg-accent hover:bg-accent/90 shadow-lg shadow-accent/30' 
-                    : 'bg-secondary hover:bg-secondary/90 shadow-lg shadow-secondary/30'
+                className={`flex h-28 w-28 items-center justify-center rounded-full border-0 outline-none transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50 sm:h-32 sm:w-32 ${
+                  isListening
+                    ? 'bg-accent shadow-lg shadow-accent/30 hover:bg-accent/90'
+                    : 'bg-secondary shadow-lg shadow-secondary/30 hover:bg-secondary/90'
                 }`}
               >
                 {isValidating ? (
-                  <Loader2 className="w-12 h-12 text-secondary-foreground animate-spin" />
+                  <Loader2 className="h-10 w-10 animate-spin text-secondary-foreground sm:h-12 sm:w-12" />
                 ) : isListening ? (
-                  <MicOff className="w-12 h-12 text-accent-foreground" />
+                  <MicOff className="h-10 w-10 text-accent-foreground sm:h-12 sm:w-12" />
                 ) : (
-                  <Mic className="w-12 h-12 text-secondary-foreground" />
+                  <Mic className="h-10 w-10 text-secondary-foreground sm:h-12 sm:w-12" />
                 )}
               </button>
             </div>
 
             <div className="text-center">
-              <p className={`text-lg font-medium ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
+              <p className={`text-base font-medium sm:text-lg ${isListening ? 'text-accent' : 'text-muted-foreground'}`}>
                 {isValidating ? 'Memvalidasi...' : isListening ? 'Tekan untuk berhenti' : 'Tekan untuk mulai'}
               </p>
-              {statusMessage && (
-                <p className="text-sm text-muted-foreground mt-1">{statusMessage}</p>
-              )}
+              {statusMessage && <p className="mt-1 text-sm text-muted-foreground">{statusMessage}</p>}
             </div>
 
-            {/* Waveform */}
             <SpeechWaveform audioStream={audioStream} />
 
-            {/* Live Transcript */}
             {(isListening || currentTranscript) && (
-              <LiveTranscript 
-                transcript={currentTranscript}
-                isListening={isListening}
-              />
+              <LiveTranscript transcript={currentTranscript} isListening={isListening} />
             )}
           </div>
 
-          {/* Final Transcript */}
           {!isListening && currentTranscript && !showResult && (
-            <div className="mt-8 p-4 rounded-lg bg-muted/50 border border-border">
-              <div className="flex items-center gap-2 mb-2">
-                <Volume2 className="w-5 h-5 text-accent" />
+            <div className="mt-6 rounded-lg border border-border bg-muted/50 p-4 sm:mt-8">
+              <div className="mb-2 flex items-center gap-2">
+                <Volume2 className="h-5 w-5 text-accent" />
                 <span className="text-sm font-medium text-muted-foreground">Terdeteksi:</span>
               </div>
-              <p className="text-lg text-foreground">{currentTranscript}</p>
+              <p className="break-words text-base text-foreground sm:text-lg">{currentTranscript}</p>
             </div>
           )}
         </Card>
 
-        {/* Instructions */}
-        <Card className="p-6 bg-secondary/20 border-secondary/30">
-          <h3 className="font-semibold text-foreground mb-3">Petunjuk:</h3>
-          <ul className="space-y-2 text-muted-foreground">
+        <Card className="border-secondary/30 bg-secondary/20 p-5 sm:p-6">
+          <h3 className="mb-3 font-semibold text-foreground">Petunjuk:</h3>
+          <ul className="space-y-2 text-sm text-muted-foreground sm:text-base">
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              Gunakan bahasa Indonesia yang baku sesuai KBBI
+              <span>Gunakan bahasa Indonesia yang baku sesuai KBBI</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              Hindari penggunaan bahasa slang atau bahasa daerah
+              <span>Hindari penggunaan bahasa slang atau bahasa daerah</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              Berbicara dengan jelas dan tidak terlalu cepat
+              <span>Berbicara dengan jelas dan tidak terlalu cepat</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              Jeda 1 detik untuk auto-validasi per kalimat
+              <span>Jeda 1 detik untuk auto-validasi per kalimat</span>
             </li>
           </ul>
         </Card>
       </div>
 
-      {/* Result Popup */}
-      <ResultPopup 
+      <ResultPopup
         isOpen={showResult}
         isCorrect={isCorrect}
         errors={detectedErrors}
@@ -634,4 +595,6 @@ export const SpeechDetector = () => {
       />
     </div>
   );
-};
+});
+
+SpeechDetector.displayName = 'SpeechDetector';

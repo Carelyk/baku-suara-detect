@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Home } from 'lucide-react';
 import { SpeechDetector } from '@/components/SpeechDetector';
 import { Button } from '@/components/ui/button';
-import { Home } from 'lucide-react';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -12,17 +12,24 @@ const Index = () => {
   }, []);
 
   return (
-    <div className="relative">
-      <div className="absolute top-4 left-4 z-50">
+    <div className="relative min-h-screen">
+      <div
+        className="absolute left-4 z-50"
+        style={{
+          top: 'max(1rem, env(safe-area-inset-top))',
+          left: 'max(1rem, env(safe-area-inset-left))',
+        }}
+      >
         <Button
           variant="ghost"
           size="icon"
           onClick={() => navigate('/')}
-          className="rounded-xl bg-[hsl(0,0%,100%)]/80 backdrop-blur-sm hover:bg-[hsl(210,40%,93%)] border border-[hsl(210,40%,88%)]"
+          className="rounded-xl border border-[hsl(210,40%,88%)] bg-[hsl(0,0%,100%)]/80 backdrop-blur-sm hover:bg-[hsl(210,40%,93%)]"
         >
-          <Home className="w-5 h-5 text-[hsl(210,50%,40%)]" />
+          <Home className="h-5 w-5 text-[hsl(210,50%,40%)]" />
         </Button>
       </div>
+
       <SpeechDetector />
     </div>
   );
