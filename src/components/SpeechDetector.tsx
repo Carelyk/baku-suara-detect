@@ -30,6 +30,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
   const finalTranscriptRef = useRef('');
   const finalHandledUpToRef = useRef(0);
+  const lastTranscriptSignatureRef = useRef('');
 
   const informalWords: Record<string, string> = {
     gue: 'saya', gua: 'saya', gw: 'saya', aku: 'saya',
@@ -106,6 +107,22 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     return tokens.join(' ').replace(/\s+/g, ' ').trim();
   }, []);
 
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const resetTranscriptState = useCallback(() => {
+    setCurrentTranscript('');
+    sentenceBufferRef.current = '';
+    currentSentenceRef.current = '';
+    finalTranscriptRef.current = '';
+    finalHandledUpToRef.current = 0;
+    lastTranscriptSignatureRef.current = '';
+  }, []);
+
   const checkForInformalWordsLocal = useCallback((text: string) => {
     const lowerText = text.toLowerCase();
     const words = lowerText.split(/\s+/);
@@ -172,10 +189,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     setIsListening(false);
     setStatusMessage('');
 
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
+    clearSilenceTimer();
 
     if (recognitionRef.current) {
       try {
@@ -190,7 +204,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     }
 
     stopAudioStream();
-  }, [stopAudioStream]);
+  }, [clearSilenceTimer, stopAudioStream]);
 
   const processSentence = useCallback(
     async (sentenceRaw: string) => {
@@ -202,11 +216,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       setStatusMessage('Memvalidasi dengan KBBI...');
       setResultTranscript(sentence);
 
-      setCurrentTranscript('');
-      sentenceBufferRef.current = '';
-      currentSentenceRef.current = '';
-      finalTranscriptRef.current = '';
-      finalHandledUpToRef.current = 0;
+      resetTranscriptState();
 
       let shouldShowResult = true;
 
@@ -236,8 +246,33 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         setShowResult(shouldShowResult);
       }
     },
-    [normalizeTranscript, validateWithKBBI],
+    [normalizeTranscript, resetTranscriptState, validateWithKBBI],
   );
+
+  const getBufferedSentence = useCallback(() => {
+    return normalizeTranscript(sentenceBufferRef.current || currentSentenceRef.current || finalTranscriptRef.current);
+  }, [normalizeTranscript]);
+
+  const scheduleSentenceProcessing = useCallback(() => {
+    clearSilenceTimer();
+
+    const delayMs = sentenceMode ? 1000 : 2000;
+    silenceTimerRef.current = setTimeout(() => {
+      if (!sentenceMode) {
+        resetTranscriptState();
+        return;
+      }
+
+      const sentence = getBufferedSentence();
+      if (sentence && !hasShownResultRef.current) {
+        stopListening();
+        void processSentence(sentence);
+        return;
+      }
+
+      resetTranscriptState();
+    }, delayMs);
+  }, [clearSilenceTimer, getBufferedSentence, processSentence, resetTranscriptState, sentenceMode, stopListening]);
 
   const startListening = useCallback(async () => {
     setStatusMessage('Meminta izin mikrofon...');
@@ -274,17 +309,13 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       recognitionRef.current = recognition;
 
-      setCurrentTranscript('');
+      resetTranscriptState();
       setResultTranscript('');
       setShowResult(false);
       setDetectedErrors([]);
       setIsCorrect(false);
-      sentenceBufferRef.current = '';
-      currentSentenceRef.current = '';
-      finalTranscriptRef.current = '';
-      finalHandledUpToRef.current = 0;
       hasShownResultRef.current = false;
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      clearSilenceTimer();
 
       recognition.onstart = () => {
         setStatusMessage('Mendengarkan... Silakan berbicara');
@@ -292,18 +323,10 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       recognition.onspeechstart = () => {
         setStatusMessage('Berbicara...');
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = null;
-        }
+        clearSilenceTimer();
       };
 
       recognition.onresult = (event: any) => {
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = null;
-        }
-
         const results: SpeechRecognitionResultList | undefined = event.results;
         if (!results) return;
 
@@ -324,6 +347,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         }
 
         const combined = normalizeTranscript(`${finalTranscriptRef.current} ${interim}`.trim());
+        const hasMeaningfulChange = Boolean(combined) && combined !== lastTranscriptSignatureRef.current;
 
         if (combined) {
           currentSentenceRef.current = combined;
@@ -334,42 +358,33 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           sentenceBufferRef.current = normalizeTranscript(finalTranscriptRef.current);
         }
 
-        const delayMs = sentenceMode ? 1000 : 2000;
-        silenceTimerRef.current = setTimeout(() => {
-          if (!sentenceMode) {
-            setCurrentTranscript('');
-            sentenceBufferRef.current = '';
-            currentSentenceRef.current = '';
-            finalTranscriptRef.current = '';
-            finalHandledUpToRef.current = 0;
-            return;
-          }
-
-          const sentence = sentenceBufferRef.current || currentSentenceRef.current;
-          if (sentence && !hasShownResultRef.current) {
-            stopListening();
-            processSentence(sentence);
-          }
-
-          setCurrentTranscript('');
-          sentenceBufferRef.current = '';
-          currentSentenceRef.current = '';
-          finalTranscriptRef.current = '';
-          finalHandledUpToRef.current = 0;
-        }, delayMs);
+        if (hasMeaningfulChange) {
+          lastTranscriptSignatureRef.current = combined;
+          scheduleSentenceProcessing();
+        }
       };
 
       recognition.onspeechend = () => {
         setStatusMessage('Jeda terdeteksi...');
+        if (sentenceBufferRef.current || currentSentenceRef.current) {
+          scheduleSentenceProcessing();
+        }
       };
 
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
 
         switch (event.error) {
-          case 'no-speech':
-            setStatusMessage('Tidak ada suara, terus berbicara...');
+          case 'no-speech': {
+            const pendingSentence = getBufferedSentence();
+            if (pendingSentence) {
+              setStatusMessage('Jeda terdeteksi, memproses...');
+              scheduleSentenceProcessing();
+            } else {
+              setStatusMessage('Belum ada suara terdeteksi...');
+            }
             return;
+          }
           case 'audio-capture':
             toast({
               title: 'Error Mikrofon',
@@ -393,7 +408,23 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         }
       };
 
-      recognition.onend = () => {};
+      recognition.onend = () => {
+        if (recognitionRef.current !== recognition) return;
+
+        recognitionRef.current = null;
+        clearSilenceTimer();
+        stopAudioStream();
+        setIsListening(false);
+        setStatusMessage('');
+
+        const pendingSentence = getBufferedSentence();
+        if (sentenceMode && pendingSentence && !hasShownResultRef.current) {
+          void processSentence(pendingSentence);
+          return;
+        }
+
+        resetTranscriptState();
+      };
 
       recognition.start();
       setIsListening(true);
@@ -423,14 +454,13 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       stopAudioStream();
     }
-  }, [normalizeTranscript, sentenceMode, processSentence, stopAudioStream, stopListening]);
+  }, [clearSilenceTimer, getBufferedSentence, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode, stopAudioStream, stopListening]);
 
   const handleMicClick = async () => {
     if (isListening) {
       stopListening();
-      const sentence = (sentenceBufferRef.current || currentSentenceRef.current || currentTranscript).trim();
-      sentenceBufferRef.current = '';
-      currentSentenceRef.current = '';
+      const sentence = normalizeTranscript(sentenceBufferRef.current || currentSentenceRef.current || currentTranscript);
+      resetTranscriptState();
       if (sentence) await processSentence(sentence);
       return;
     }
@@ -440,32 +470,20 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
   const closeResult = () => {
     setShowResult(false);
-    setCurrentTranscript('');
     setResultTranscript('');
     setDetectedErrors([]);
     setIsCorrect(false);
-    sentenceBufferRef.current = '';
-    currentSentenceRef.current = '';
-    finalTranscriptRef.current = '';
-    finalHandledUpToRef.current = 0;
+    resetTranscriptState();
     hasShownResultRef.current = false;
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    clearSilenceTimer();
   };
 
   useEffect(() => {
     if (!showResult) return;
 
-    setCurrentTranscript('');
-    sentenceBufferRef.current = '';
-    currentSentenceRef.current = '';
-    finalTranscriptRef.current = '';
-    finalHandledUpToRef.current = 0;
-
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-  }, [showResult]);
+    resetTranscriptState();
+    clearSilenceTimer();
+  }, [clearSilenceTimer, resetTranscriptState, showResult]);
 
   useEffect(() => {
     return () => {
@@ -474,10 +492,10 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           recognitionRef.current.stop();
         } catch (e) {}
       }
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      clearSilenceTimer();
       stopAudioStream();
     };
-  }, [stopAudioStream]);
+  }, [clearSilenceTimer, stopAudioStream]);
 
   return (
     <div
