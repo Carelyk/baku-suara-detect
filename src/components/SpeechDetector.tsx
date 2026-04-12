@@ -29,7 +29,10 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const hasShownResultRef = useRef(false);
 
   const finalTranscriptRef = useRef('');
-  const finalHandledUpToRef = useRef(0);
+  const pendingSentenceOnStopRef = useRef('');
+  const shouldProcessOnEndRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const isStoppingRef = useRef(false);
   const lastTranscriptSignatureRef = useRef('');
 
   const informalWords: Record<string, string> = {
@@ -60,6 +63,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     dong: '', deh: '', sih: '', lah: '', kan: '', nih: '', tuh: '',
     yg: 'yang', dgn: 'dengan', utk: 'untuk', krn: 'karena',
     jd: 'jadi', jgn: 'jangan', hrs: 'harus', blh: 'boleh',
+    punten: 'permisi', abdi: 'saya', anjeun: 'Anda', teu: 'tidak', atos: 'sudah', bade: 'akan', kumaha: 'bagaimana',
+    ora: 'tidak', opo: 'apa', piye: 'bagaimana', kowe: 'kamu', arep: 'ingin', wes: 'sudah', mboten: 'tidak', nggih: 'ya',
   };
 
   useEffect(() => {
@@ -72,6 +77,12 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         variant: 'destructive',
       });
     }
+  }, []);
+
+  const isMobileSpeechBrowser = useCallback(() => {
+    const ua = navigator.userAgent;
+    const isIPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || isIPadOS;
   }, []);
 
   const normalizeTranscript = useCallback((input: string) => {
@@ -107,6 +118,33 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     return tokens.join(' ').replace(/\s+/g, ' ').trim();
   }, []);
 
+  const mergeTranscriptText = useCallback(
+    (base: string, addition: string) => {
+      const normalizedBase = normalizeTranscript(base);
+      const normalizedAddition = normalizeTranscript(addition);
+
+      if (!normalizedAddition) return normalizedBase;
+      if (!normalizedBase) return normalizedAddition;
+      if (normalizedBase === normalizedAddition) return normalizedBase;
+      if (normalizedAddition.startsWith(normalizedBase)) return normalizedAddition;
+      if (normalizedBase.startsWith(normalizedAddition)) return normalizedBase;
+
+      const baseTokens = normalizedBase.split(' ');
+      const additionTokens = normalizedAddition.split(' ');
+      let overlap = 0;
+
+      for (let size = Math.min(baseTokens.length, additionTokens.length); size >= 1; size--) {
+        if (baseTokens.slice(-size).join(' ') === additionTokens.slice(0, size).join(' ')) {
+          overlap = size;
+          break;
+        }
+      }
+
+      return normalizeTranscript([...baseTokens, ...additionTokens.slice(overlap)].join(' '));
+    },
+    [normalizeTranscript],
+  );
+
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
@@ -119,7 +157,9 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     sentenceBufferRef.current = '';
     currentSentenceRef.current = '';
     finalTranscriptRef.current = '';
-    finalHandledUpToRef.current = 0;
+    pendingSentenceOnStopRef.current = '';
+    shouldProcessOnEndRef.current = false;
+    isStoppingRef.current = false;
     lastTranscriptSignatureRef.current = '';
   }, []);
 
@@ -185,26 +225,53 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     }
   }, []);
 
-  const stopListening = useCallback(() => {
-    setIsListening(false);
-    setStatusMessage('');
-
-    clearSilenceTimer();
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.stop();
-      } catch (e) {
-        console.log('Error stopping recognition:', e);
+  const cleanupRecognition = useCallback(
+    (recognitionInstance?: any | null) => {
+      if (recognitionInstance) {
+        try {
+          recognitionInstance.onstart = null;
+          recognitionInstance.onend = null;
+          recognitionInstance.onerror = null;
+          recognitionInstance.onresult = null;
+          recognitionInstance.onspeechstart = null;
+          recognitionInstance.onspeechend = null;
+        } catch (e) {
+          console.log('Error cleaning recognition handlers:', e);
+        }
       }
-      recognitionRef.current = null;
+
+      if (!recognitionInstance || recognitionRef.current === recognitionInstance) {
+        recognitionRef.current = null;
+      }
+
+      isStartingRef.current = false;
+      isStoppingRef.current = false;
+      setIsListening(false);
+      setStatusMessage('');
+      clearSilenceTimer();
+      stopAudioStream();
+    },
+    [clearSilenceTimer, stopAudioStream],
+  );
+
+  const forceStopListening = useCallback(() => {
+    shouldProcessOnEndRef.current = false;
+    pendingSentenceOnStopRef.current = '';
+
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      cleanupRecognition(null);
+      return;
     }
 
-    stopAudioStream();
-  }, [clearSilenceTimer, stopAudioStream]);
+    try {
+      recognition.abort?.();
+    } catch (e) {
+      console.log('Error aborting recognition:', e);
+    }
+
+    cleanupRecognition(recognition);
+  }, [cleanupRecognition]);
 
   const processSentence = useCallback(
     async (sentenceRaw: string) => {
@@ -253,6 +320,41 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     return normalizeTranscript(sentenceBufferRef.current || currentSentenceRef.current || finalTranscriptRef.current);
   }, [normalizeTranscript]);
 
+  const requestStopListening = useCallback(() => {
+    if (isStoppingRef.current) return;
+
+    const bufferedSentence = getBufferedSentence();
+    pendingSentenceOnStopRef.current = bufferedSentence;
+    shouldProcessOnEndRef.current = Boolean(bufferedSentence);
+
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      cleanupRecognition(null);
+      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+        void processSentence(bufferedSentence);
+      } else {
+        resetTranscriptState();
+      }
+      return;
+    }
+
+    isStoppingRef.current = true;
+    setStatusMessage(bufferedSentence ? 'Memproses ucapan...' : 'Menghentikan mikrofon...');
+
+    try {
+      recognition.stop();
+    } catch (error) {
+      console.error('Error stopping recognition gracefully:', error);
+      cleanupRecognition(recognition);
+
+      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+        void processSentence(bufferedSentence);
+      } else {
+        resetTranscriptState();
+      }
+    }
+  }, [cleanupRecognition, getBufferedSentence, processSentence, resetTranscriptState, sentenceMode]);
+
   const scheduleSentenceProcessing = useCallback(() => {
     clearSilenceTimer();
 
@@ -265,16 +367,18 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       const sentence = getBufferedSentence();
       if (sentence && !hasShownResultRef.current) {
-        stopListening();
-        void processSentence(sentence);
+        requestStopListening();
         return;
       }
 
       resetTranscriptState();
     }, delayMs);
-  }, [clearSilenceTimer, getBufferedSentence, processSentence, resetTranscriptState, sentenceMode, stopListening]);
+  }, [clearSilenceTimer, getBufferedSentence, requestStopListening, resetTranscriptState, sentenceMode]);
 
   const startListening = useCallback(async () => {
+    if (isStartingRef.current || recognitionRef.current) return;
+
+    isStartingRef.current = true;
     setStatusMessage('Meminta izin mikrofon...');
 
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -286,6 +390,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         variant: 'destructive',
       });
       setStatusMessage('');
+      isStartingRef.current = false;
       return;
     }
 
@@ -302,7 +407,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       setStatusMessage('Mikrofon aktif, mulai berbicara...');
 
       const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = true;
+      recognition.continuous = !isMobileSpeechBrowser();
       recognition.interimResults = true;
       recognition.lang = 'id-ID';
       recognition.maxAlternatives = 1;
@@ -330,32 +435,33 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         const results: SpeechRecognitionResultList | undefined = event.results;
         if (!results) return;
 
+        let rebuiltFinal = '';
         let interim = '';
-        for (let i = event.resultIndex; i < results.length; i++) {
+        for (let i = 0; i < results.length; i++) {
           const res = results[i];
           const txt = (res?.[0]?.transcript || '').trim();
           if (!txt) continue;
 
           if (res.isFinal) {
-            if (i >= finalHandledUpToRef.current) {
-              finalTranscriptRef.current = `${finalTranscriptRef.current} ${txt}`.trim();
-              finalHandledUpToRef.current = i + 1;
-            }
+            rebuiltFinal = mergeTranscriptText(rebuiltFinal, txt);
           } else {
-            interim = `${interim} ${txt}`.trim();
+            interim = mergeTranscriptText(interim, txt);
           }
         }
 
-        const combined = normalizeTranscript(`${finalTranscriptRef.current} ${interim}`.trim());
+        const mergedFinal = mergeTranscriptText(finalTranscriptRef.current, rebuiltFinal);
+        const combined = normalizeTranscript(`${mergedFinal} ${interim}`.trim());
         const hasMeaningfulChange = Boolean(combined) && combined !== lastTranscriptSignatureRef.current;
+
+        finalTranscriptRef.current = mergedFinal;
+
+        if (mergedFinal) {
+          sentenceBufferRef.current = mergedFinal;
+        }
 
         if (combined) {
           currentSentenceRef.current = combined;
           setCurrentTranscript(combined);
-        }
-
-        if (finalTranscriptRef.current) {
-          sentenceBufferRef.current = normalizeTranscript(finalTranscriptRef.current);
         }
 
         if (hasMeaningfulChange) {
@@ -391,7 +497,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
               description: 'Tidak dapat menangkap audio.',
               variant: 'destructive',
             });
-            stopListening();
+            forceStopListening();
             break;
           case 'not-allowed':
             toast({
@@ -399,7 +505,16 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
               description: 'Izinkan akses mikrofon di pengaturan browser.',
               variant: 'destructive',
             });
-            stopListening();
+            forceStopListening();
+            break;
+          case 'service-not-allowed':
+          case 'network':
+            toast({
+              title: 'Layanan Suara Tidak Tersedia',
+              description: 'Coba tutup browser lain atau ulangi beberapa saat lagi.',
+              variant: 'destructive',
+            });
+            forceStopListening();
             break;
           case 'aborted':
             return;
@@ -411,13 +526,14 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
-        recognitionRef.current = null;
-        clearSilenceTimer();
-        stopAudioStream();
-        setIsListening(false);
-        setStatusMessage('');
+        const pendingSentence = normalizeTranscript(
+          pendingSentenceOnStopRef.current
+            ? mergeTranscriptText(pendingSentenceOnStopRef.current, getBufferedSentence())
+            : getBufferedSentence(),
+        );
 
-        const pendingSentence = getBufferedSentence();
+        cleanupRecognition(recognition);
+
         if (sentenceMode && pendingSentence && !hasShownResultRef.current) {
           void processSentence(pendingSentence);
           return;
@@ -428,9 +544,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       recognition.start();
       setIsListening(true);
+      isStartingRef.current = false;
     } catch (err: any) {
       console.error('Error starting:', err);
       setStatusMessage('');
+      isStartingRef.current = false;
 
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         toast({
@@ -454,18 +572,15 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       stopAudioStream();
     }
-  }, [clearSilenceTimer, getBufferedSentence, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode, stopAudioStream, stopListening]);
+  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode, stopAudioStream]);
 
   const handleMicClick = async () => {
     if (isListening) {
-      stopListening();
-      const sentence = normalizeTranscript(sentenceBufferRef.current || currentSentenceRef.current || currentTranscript);
-      resetTranscriptState();
-      if (sentence) await processSentence(sentence);
+      requestStopListening();
       return;
     }
 
-    startListening();
+    await startListening();
   };
 
   const closeResult = () => {
@@ -487,15 +602,9 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {}
-      }
-      clearSilenceTimer();
-      stopAudioStream();
+      forceStopListening();
     };
-  }, [clearSilenceTimer, stopAudioStream]);
+  }, [forceStopListening]);
 
   return (
     <div
@@ -590,7 +699,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              <span>Hindari penggunaan bahasa slang atau bahasa daerah</span>
+              <span>Sistem akan menandai kata slang, non-KBBI, dan bahasa daerah</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
