@@ -16,12 +16,10 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [detectedErrors, setDetectedErrors] = useState<Array<{ wrong: string; correct: string }>>([]);
-  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [browserSupported, setBrowserSupported] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
 
   const recognitionRef = useRef<any>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
   const sentenceBufferRef = useRef('');
   const currentSentenceRef = useRef('');
@@ -60,7 +58,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     sama: 'dengan', ama: 'dengan',
     buat: 'untuk', abis: 'setelah', habis: 'setelah',
     terus: 'kemudian', trus: 'kemudian',
-    dong: '', deh: '', sih: '', lah: '', kan: '', nih: '', tuh: '',
+    dong: '', deh: '', sih: '', lah: '', kan: '', nih: '', tuh: '', loh: '', mah: '', teh: '', atuh: '', euy: '', weh: '',
     yg: 'yang', dgn: 'dengan', utk: 'untuk', krn: 'karena',
     jd: 'jadi', jgn: 'jangan', hrs: 'harus', blh: 'boleh',
     punten: 'permisi', abdi: 'saya', anjeun: 'Anda', teu: 'tidak', atos: 'sudah', bade: 'akan', kumaha: 'bagaimana',
@@ -217,14 +215,6 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     [normalizeTranscript, checkForInformalWordsLocal],
   );
 
-  const stopAudioStream = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      setAudioStream(null);
-    }
-  }, []);
-
   const cleanupRecognition = useCallback(
     (recognitionInstance?: any | null) => {
       if (recognitionInstance) {
@@ -249,9 +239,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       setIsListening(false);
       setStatusMessage('');
       clearSilenceTimer();
-      stopAudioStream();
     },
-    [clearSilenceTimer, stopAudioStream],
+    [clearSilenceTimer],
   );
 
   const forceStopListening = useCallback(() => {
@@ -375,11 +364,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     }, delayMs);
   }, [clearSilenceTimer, getBufferedSentence, requestStopListening, resetTranscriptState, sentenceMode]);
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(() => {
     if (isStartingRef.current || recognitionRef.current) return;
-
-    isStartingRef.current = true;
-    setStatusMessage('Meminta izin mikrofon...');
 
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -394,18 +380,10 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       return;
     }
 
+    isStartingRef.current = true;
+    setStatusMessage('Menyalakan mikrofon...');
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      });
-
-      streamRef.current = stream;
-      setAudioStream(stream);
-      setStatusMessage('Mikrofon aktif, mulai berbicara...');
-
       const recognition = new SpeechRecognitionAPI();
       recognition.continuous = !isMobileSpeechBrowser();
       recognition.interimResults = true;
@@ -423,6 +401,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       clearSilenceTimer();
 
       recognition.onstart = () => {
+        isStartingRef.current = false;
         setStatusMessage('Mendengarkan... Silakan berbicara');
       };
 
@@ -540,20 +519,28 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         }
 
         resetTranscriptState();
+        setStatusMessage(pendingSentence ? '' : 'Belum ada kalimat yang tertangkap. Tekan mikrofon lalu coba lagi.');
       };
 
       recognition.start();
       setIsListening(true);
-      isStartingRef.current = false;
     } catch (err: any) {
       console.error('Error starting:', err);
       setStatusMessage('');
       isStartingRef.current = false;
+      recognitionRef.current = null;
+      setIsListening(false);
 
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         toast({
           title: 'Izin Mikrofon Ditolak',
           description: 'Klik ikon gembok di address bar dan izinkan mikrofon.',
+          variant: 'destructive',
+        });
+      } else if (err.name === 'InvalidStateError') {
+        toast({
+          title: 'Mikrofon Sedang Digunakan',
+          description: 'Tunggu sebentar lalu tekan tombol mikrofon lagi.',
           variant: 'destructive',
         });
       } else if (err.name === 'NotFoundError') {
@@ -569,18 +556,16 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           variant: 'destructive',
         });
       }
-
-      stopAudioStream();
     }
-  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode, stopAudioStream]);
+  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode]);
 
-  const handleMicClick = async () => {
+  const handleMicClick = () => {
     if (isListening) {
       requestStopListening();
       return;
     }
 
-    await startListening();
+    startListening();
   };
 
   const closeResult = () => {
@@ -672,7 +657,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
               {statusMessage && <p className="mt-1 text-sm text-muted-foreground">{statusMessage}</p>}
             </div>
 
-            <SpeechWaveform audioStream={audioStream} />
+            <SpeechWaveform isListening={isListening} />
 
             {(isListening || currentTranscript) && (
               <LiveTranscript transcript={currentTranscript} isListening={isListening} />
@@ -699,7 +684,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
-              <span>Sistem akan menandai kata slang, non-KBBI, dan bahasa daerah</span>
+                <span>Sistem akan menandai kata slang, non-KBBI, dan bahasa daerah seperti Sunda/Jawa</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-accent">•</span>
