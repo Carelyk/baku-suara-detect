@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, BookOpen, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Home, BookOpen, Star, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const slideIcons = ['📖', '✍️', '🎯', '📚', '🔤', '📝', '📐', '🌟', '🏆'];
@@ -57,8 +57,14 @@ const Materi = () => {
   const navigate = useNavigate();
   const [currentSlide, setCurrentSlide] = useState(0);
 
+  const isLastSlide = currentSlide === slides.length - 1;
+
   const goNext = () => {
-    if (currentSlide < slides.length - 1) setCurrentSlide(currentSlide + 1);
+    if (isLastSlide) {
+      navigate('/');
+    } else {
+      setCurrentSlide(currentSlide + 1);
+    }
   };
 
   const goPrev = () => {
@@ -169,11 +175,23 @@ const Materi = () => {
             <Button
               variant="outline"
               onClick={goNext}
-              disabled={currentSlide === slides.length - 1}
-              className="order-2 min-w-[120px] flex-1 rounded-xl border-[hsl(210,40%,85%)] bg-[hsl(0,0%,100%)]/80 shadow-sm hover:bg-[hsl(210,40%,93%)] disabled:opacity-30 sm:order-3 sm:min-w-0 sm:flex-none"
+              className={`order-2 min-w-[120px] flex-1 rounded-xl shadow-sm sm:order-3 sm:min-w-0 sm:flex-none ${
+                isLastSlide
+                  ? 'border-[hsl(200,60%,50%)] bg-[hsl(200,60%,50%)] text-white hover:bg-[hsl(200,60%,45%)]'
+                  : 'border-[hsl(210,40%,85%)] bg-[hsl(0,0%,100%)]/80 hover:bg-[hsl(210,40%,93%)]'
+              }`}
             >
-              <span className="text-sm">Next</span>
-              <ChevronRight className="h-4 w-4" />
+              {isLastSlide ? (
+                <>
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm">Finish</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm">Next</span>
+                  <ChevronRight className="h-4 w-4" />
+                </>
+              )}
             </Button>
 
             <div className="order-3 flex w-full justify-center overflow-x-auto py-1 sm:order-2 sm:w-auto">
