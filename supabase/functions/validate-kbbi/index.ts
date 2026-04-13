@@ -44,6 +44,10 @@ Jika teks adalah Bahasa Indonesia, lakukan deteksi kata-kata yang TIDAK BAKU, te
 3. Singkatan tidak resmi (contoh: yg, dgn, krn, dll)
 4. Partikel informal (contoh: dong, sih, deh, nih, dll)
 
+PENTING TAMBAHAN:
+- Jika teks campuran Bahasa Indonesia dengan bahasa daerah (misalnya Sunda/Jawa seperti "mah", "teh", "punten", "abdi", "ora", "opo"), tetap anggap language = "id".
+- Kata daerah/campur kode tersebut harus masuk ke daftar "errors" karena tujuan sistem ini adalah melatih siswa berbicara formal/baku sesuai KBBI di lingkungan sekolah.
+
 PENTING: Hanya tandai kata yang benar-benar tidak baku. Jangan tandai kata baku yang valid.
 
 Berikan respons dalam format JSON dengan struktur:

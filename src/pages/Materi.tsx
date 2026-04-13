@@ -7,40 +7,49 @@ const slideIcons = ['📖', '✍️', '🎯', '📚', '🔤', '📝', '📐', '�
 
 const slides = [
   {
-    title: 'Pengertian Bahasa Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+    title: 'Pengertian Bahasa Formal/Baku',
+    content:
+      'Bahasa formal/baku adalah bahasa Indonesia yang digunakan secara resmi, sopan, dan sesuai kaidah kebahasaan. Bahasa formal/baku biasanya digunakan dalam situasi resmi dan akademik, seperti di sekolah, saat berbicara dengan guru, presentasi, dan menulis tugas.',
   },
   {
-    title: 'Ciri-Ciri Bahasa Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae. Praesent euismod, nisi vel consectetur interdum, nisl nunc egestas nisi, vitae aliquam nisl nunc sit amet nisl.',
+    title: 'Ciri-Ciri Bahasa Formal/Baku',
+    content:
+      '1. Menggunakan kata baku dan tidak menggunakan bahasa gaul atau bahasa daerah\n2. Kalimat tersusun jelas dan lengkap\n3. Menggunakan bahasa yang sopan\n4. Sesuai dengan konteks dan situasi',
   },
   {
-    title: 'Fungsi Bahasa Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi luctus, velit a feugiat vehicula, lorem elit lacinia mi, a facilisis nulla augue at mi. Nullam vehicula ipsum a arcu cursus vitae congue mauris rhoncus.',
+    title: 'Contoh Bahasa Tidak Formal dan Formal',
+    content:
+      'Contoh Bahasa Tidak Formal / Tidak Baku\n1. Aku gak ngerti loh pelajaran ini\n2. Bu, aku capek banget deh\n3. Aku mah belum siap\n4. Jelasin lagi dong, Bu\n\nContoh Bahasa Formal / Baku\n1. Saya belum memahami pelajaran ini\n2. Ibu, saya merasa lelah hari ini\n3. Saya belum siap\n4. Tolong jelaskan kembali, Bu',
   },
   {
-    title: 'Ragam Bahasa Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod.',
+    title: 'Pentingnya Menggunakan Bahasa Formal/Baku',
+    content:
+      '1. Menunjukkan sikap sopan dan hormat\n2. Membantu menyampaikan gagasan dengan jelas\n3. Membiasakan berbahasa Indonesia yang baik dan benar\n4. Mendukung keberhasilan belajar di sekolah',
   },
   {
-    title: 'Contoh Kata Baku dan Tidak Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean lacinia bibendum nulla sed consectetur. Cras mattis consectetur purus sit amet fermentum. Cras justo odio, dapibus ut facilisis in, egestas eget quam.',
+    title: 'Pengertian Teks Pidato',
+    content:
+      'Teks pidato adalah naskah atau tulisan yang berisi gagasan, pendapat, atau pesan yang akan disampaikan di depan banyak orang. Pidato dilakukan secara lisan dengan tujuan tertentu, misalnya untuk memberikan informasi atau ajakan.',
   },
   {
-    title: 'Ejaan Yang Disempurnakan (EYD)',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam id dolor id nibh ultricies vehicula ut id elit. Cras mattis consectetur purus sit amet fermentum. Donec id elit non mi porta gravida at eget metus.',
+    title: 'Tujuan Teks Pidato',
+    content:
+      '1. Memberikan informasi\n2. Memberikan apresiasi\n3. Menyampaikan pendapat\n4. Memberikan ajakan',
   },
   {
-    title: 'Tata Bahasa Baku',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer posuere erat a ante venenatis dapibus posuere velit aliquet. Duis mollis, est non commodo luctus, nisi erat porttitor ligula, eget lacinia odio sem nec elit.',
+    title: 'Struktur Teks Pidato',
+    content:
+      '1. Pembukaan\nBerisi: salam pembuka, sapaan, ucapan syukur\n\n2. Isi\nBerisi: penjelasan tentang topik, informasi atau ajakan\n\n3. Penutup\nBerisi: kesimpulan, harapan, salam penutup',
   },
   {
-    title: 'Penerapan Bahasa Baku dalam Kehidupan',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas sed diam eget risus varius blandit sit amet non magna. Donec ullamcorper nulla non metus auctor fringilla. Vestibulum id ligula porta felis euismod semper.',
+    title: 'Syarat Pidato',
+    content:
+      '1. Menggunakan Bahasa Indonesia yang baik dan benar\n2. Suara jelas dan lantang\n3. Tidak terlalu cepat\n4. Menggunakan sikap tubuh yang sopan\n5. Tidak menggunakan campur kode',
   },
   {
-    title: 'Rangkuman',
-    content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent commodo cursus magna, vel scelerisque nisl consectetur et. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Aenean eu leo quam. Pellentesque ornare sem lacinia quam venenatis vestibulum.',
+    title: 'Contoh Teks Pidato',
+    content:
+      'Tema: Menjaga Kebersihan Sekolah\n\nAssalamu’alaikum warahmatullahi wabarakatuh.\nYang saya hormati Bapak/Ibu guru dan teman-teman yang saya banggakan.\n\nTeman-teman, kebersihan sekolah sangat penting. Sekolah yang bersih membuat kita sehat dan nyaman belajar. Oleh karena itu, mari kita membuang sampah pada tempatnya dan menjaga kebersihan kelas.\n\nDemikian pidato yang dapat saya sampaikan. Terima kasih.\nWassalamu’alaikum warahmatullahi wabarakatuh.',
   },
 ];
 
@@ -128,8 +137,8 @@ const Materi = () => {
               </div>
             </div>
 
-            <div className="min-h-[220px] p-5 sm:min-h-[260px] sm:p-6">
-              <p className="text-sm leading-relaxed text-[hsl(210,15%,35%)] sm:text-base">
+            <div className="max-h-[52vh] min-h-[220px] overflow-y-auto p-5 sm:min-h-[260px] sm:p-6">
+              <p className="break-words whitespace-pre-line text-sm leading-relaxed text-[hsl(210,15%,35%)] sm:text-base">
                 {slides[currentSlide].content}
               </p>
             </div>
