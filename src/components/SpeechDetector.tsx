@@ -622,6 +622,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     setResultTranscript('');
     setDetectedErrors([]);
     setIsCorrect(false);
+    setDetectedStructure(undefined);
     resetTranscriptState();
     hasShownResultRef.current = false;
     clearSilenceTimer();
@@ -654,6 +655,41 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
             Tekan tombol mikrofon dan mulai berbicara dalam Bahasa Indonesia yang baku
           </p>
         </div>
+
+        {/* Mode toggle */}
+        <div className="mx-auto flex w-full max-w-md gap-2 rounded-2xl border border-border bg-card/60 p-1.5 shadow-sm backdrop-blur-sm">
+          <button
+            type="button"
+            disabled={isListening || isValidating}
+            onClick={() => setPidatoMode(false)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-60 sm:text-sm ${
+              !pidatoMode
+                ? 'bg-[hsl(200,70%,50%)] text-white shadow'
+                : 'text-[hsl(210,30%,40%)] hover:bg-[hsl(210,40%,93%)]'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Mode Kalimat
+          </button>
+          <button
+            type="button"
+            disabled={isListening || isValidating}
+            onClick={() => setPidatoMode(true)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-60 sm:text-sm ${
+              pidatoMode
+                ? 'bg-[hsl(280,60%,50%)] text-white shadow'
+                : 'text-[hsl(210,30%,40%)] hover:bg-[hsl(210,40%,93%)]'
+            }`}
+          >
+            <Megaphone className="h-4 w-4" />
+            Mode Pidato
+          </button>
+        </div>
+        <p className="text-center text-xs text-muted-foreground">
+          {pidatoMode
+            ? 'Pidato lengkap: tekan mikrofon untuk mulai, tekan lagi setelah selesai. Struktur (pembukaan, isi, penutup) akan dianalisis.'
+            : 'Kalimat tunggal: jeda 1 detik akan menghentikan rekaman otomatis dan memvalidasi kata baku.'}
+        </p>
 
         {!browserSupported && (
           <Card className="border-destructive/50 bg-destructive/10 p-4">
@@ -752,6 +788,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         isCorrect={isCorrect}
         errors={detectedErrors}
         transcript={resultTranscript}
+        structure={detectedStructure}
         onClose={closeResult}
       />
     </div>
