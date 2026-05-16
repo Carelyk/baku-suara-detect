@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
-import { Mic, MicOff, Volume2, AlertCircle, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, AlertCircle, Loader2, MessageSquare, Megaphone } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
 import { LiveTranscript } from './LiveTranscript';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { detectPidatoStructure, saveHistoryEntry, type PidatoStructure } from '@/lib/history';
 
 export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [isListening, setIsListening] = useState(false);
