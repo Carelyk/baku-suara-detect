@@ -10,6 +10,7 @@ import { detectPidatoStructure, saveHistoryEntry, type PidatoStructure } from '@
 
 export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [isListening, setIsListening] = useState(false);
+  const [pidatoMode, setPidatoMode] = useState(false);
   const [sentenceMode, setSentenceMode] = useState(true);
   const [isValidating, setIsValidating] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
@@ -17,6 +18,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [detectedErrors, setDetectedErrors] = useState<Array<{ wrong: string; correct: string }>>([]);
+  const [detectedStructure, setDetectedStructure] = useState<PidatoStructure | undefined>(undefined);
   const [browserSupported, setBrowserSupported] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
 
