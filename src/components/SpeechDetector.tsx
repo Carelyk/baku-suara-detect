@@ -422,7 +422,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
     try {
       const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = !isMobileSpeechBrowser();
+      recognition.continuous = pidatoMode ? true : !isMobileSpeechBrowser();
       recognition.interimResults = true;
       recognition.lang = 'id-ID';
       recognition.maxAlternatives = 1;
@@ -434,6 +434,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       setShowResult(false);
       setDetectedErrors([]);
       setIsCorrect(false);
+      setDetectedStructure(undefined);
       hasShownResultRef.current = false;
       clearSilenceTimer();
 
