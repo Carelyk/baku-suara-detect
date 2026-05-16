@@ -605,7 +605,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         });
       }
     }
-  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode]);
+  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, pidatoMode, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode]);
 
   const handleMicClick = () => {
     if (isListening) {
