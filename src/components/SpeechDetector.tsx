@@ -379,6 +379,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const scheduleSentenceProcessing = useCallback(() => {
     clearSilenceTimer();
 
+    if (pidatoMode) {
+      // In pidato mode, do not auto-stop on silence — user controls stop manually.
+      return;
+    }
+
     const delayMs = sentenceMode ? 1000 : 2000;
     silenceTimerRef.current = setTimeout(() => {
       if (!sentenceMode) {
@@ -394,7 +399,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       resetTranscriptState();
     }, delayMs);
-  }, [clearSilenceTimer, getBufferedSentence, requestStopListening, resetTranscriptState, sentenceMode]);
+  }, [clearSilenceTimer, getBufferedSentence, pidatoMode, requestStopListening, resetTranscriptState, sentenceMode]);
 
   const startListening = useCallback(() => {
     if (isStartingRef.current || recognitionRef.current) return;
