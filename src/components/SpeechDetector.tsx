@@ -542,6 +542,17 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
+        // In pidato mode, auto-restart if user hasn't requested stop yet (handles mobile WebKit cutoffs).
+        if (pidatoMode && !isStoppingRef.current) {
+          try {
+            recognition.start();
+            setStatusMessage('Mendengarkan pidato...');
+            return;
+          } catch (e) {
+            console.log('Failed to auto-restart in pidato mode:', e);
+          }
+        }
+
         const pendingSentence = normalizeTranscript(
           pendingSentenceOnStopRef.current
             ? mergeTranscriptText(pendingSentenceOnStopRef.current, getBufferedSentence())
@@ -550,7 +561,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
         cleanupRecognition(recognition);
 
-        if (sentenceMode && pendingSentence && !hasShownResultRef.current) {
+        if ((sentenceMode || pidatoMode) && pendingSentence && !hasShownResultRef.current) {
           void processSentence(pendingSentence);
           return;
         }
