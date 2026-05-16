@@ -351,7 +351,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     const recognition = recognitionRef.current;
     if (!recognition) {
       cleanupRecognition(null);
-      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
         void processSentence(bufferedSentence);
       } else {
         resetTranscriptState();
@@ -368,13 +368,13 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       console.error('Error stopping recognition gracefully:', error);
       cleanupRecognition(recognition);
 
-      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
         void processSentence(bufferedSentence);
       } else {
         resetTranscriptState();
       }
     }
-  }, [cleanupRecognition, getBufferedSentence, processSentence, resetTranscriptState, sentenceMode]);
+  }, [cleanupRecognition, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
 
   const scheduleSentenceProcessing = useCallback(() => {
     clearSilenceTimer();
