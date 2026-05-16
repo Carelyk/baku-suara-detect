@@ -543,15 +543,34 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
-        // In pidato mode, auto-restart if user hasn't requested stop yet (handles mobile WebKit cutoffs).
+        // In pidato mode, auto-restart if user hasn't requested stop (handles mobile WebKit cutoffs).
         if (pidatoMode && !isStoppingRef.current) {
+          // Preserve buffered transcript across restarts.
+          const preservedBuffer = sentenceBufferRef.current;
+          const preservedFinal = finalTranscriptRef.current;
+
           try {
-            recognition.start();
-            setStatusMessage('Mendengarkan pidato...');
-            return;
-          } catch (e) {
-            console.log('Failed to auto-restart in pidato mode:', e);
-          }
+            recognition.onstart = null;
+            recognition.onend = null;
+            recognition.onerror = null;
+            recognition.onresult = null;
+            recognition.onspeechstart = null;
+            recognition.onspeechend = null;
+          } catch {}
+          recognitionRef.current = null;
+          isStartingRef.current = false;
+
+          // Restore buffers after reset inside startListening.
+          setTimeout(() => {
+            startListening();
+            setTimeout(() => {
+              sentenceBufferRef.current = preservedBuffer || sentenceBufferRef.current;
+              finalTranscriptRef.current = preservedFinal || finalTranscriptRef.current;
+              if (preservedBuffer) setCurrentTranscript(preservedBuffer);
+            }, 50);
+          }, 120);
+          setStatusMessage('Melanjutkan rekaman pidato...');
+          return;
         }
 
         const pendingSentence = normalizeTranscript(
