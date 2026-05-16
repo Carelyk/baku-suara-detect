@@ -33,6 +33,9 @@
     --success: 142 76% 45%;
     --success-foreground: 0 0% 100%;
 
+    --correction: 25 95% 50%;
+    --correction-foreground: 0 0% 100%;
+
     --border: 200 30% 90%;
     --input: 200 30% 90%;
     --ring: 200 80% 60%;
@@ -76,6 +79,9 @@
 
     --success: 142 70% 40%;
     --success-foreground: 0 0% 100%;
+
+    --correction: 25 90% 55%;
+    --correction-foreground: 0 0% 100%;
 
     --border: 210 30% 20%;
     --input: 210 30% 20%;
@@ -130,5 +136,48 @@
       transform: scale(1.5);
       opacity: 0;
     }
+  }
+
+  .book-page {
+    background-color: hsl(40, 45%, 96%);
+    background-image:
+      linear-gradient(to right, rgba(120, 80, 30, 0.06), transparent 8%, transparent 92%, rgba(120, 80, 30, 0.06)),
+      repeating-linear-gradient(0deg, rgba(120, 80, 30, 0.03) 0, rgba(120, 80, 30, 0.03) 1px, transparent 1px, transparent 28px);
+  }
+
+  .book-shadow {
+    box-shadow:
+      0 25px 50px -12px rgba(80, 50, 20, 0.35),
+      0 8px 16px -4px rgba(80, 50, 20, 0.2),
+      inset 0 0 0 1px rgba(120, 80, 30, 0.15);
+  }
+
+  .book-spine {
+    background: linear-gradient(
+      to right,
+      rgba(80, 50, 20, 0.25) 0%,
+      rgba(80, 50, 20, 0.05) 40%,
+      transparent 50%,
+      rgba(80, 50, 20, 0.05) 60%,
+      rgba(80, 50, 20, 0.25) 100%
+    );
+  }
+
+  @keyframes page-flip-next {
+    0% { transform: perspective(1200px) rotateY(0deg); opacity: 0.4; }
+    100% { transform: perspective(1200px) rotateY(0deg); opacity: 1; }
+  }
+
+  @keyframes page-flip-prev {
+    0% { transform: perspective(1200px) rotateY(0deg); opacity: 0.4; }
+    100% { transform: perspective(1200px) rotateY(0deg); opacity: 1; }
+  }
+
+  .page-enter-next {
+    animation: page-flip-next 0.45s ease-out;
+  }
+
+  .page-enter-prev {
+    animation: page-flip-prev 0.45s ease-out;
   }
 }

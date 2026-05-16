@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
-import { Mic, MicOff, Volume2, AlertCircle, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, AlertCircle, Loader2, MessageSquare, Megaphone } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ResultPopup } from './ResultPopup';
 import { SpeechWaveform } from './SpeechWaveform';
 import { LiveTranscript } from './LiveTranscript';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { detectPidatoStructure, saveHistoryEntry, type PidatoStructure } from '@/lib/history';
 
 export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [isListening, setIsListening] = useState(false);
+  const [pidatoMode, setPidatoMode] = useState(false);
   const [sentenceMode, setSentenceMode] = useState(true);
   const [isValidating, setIsValidating] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
@@ -16,6 +18,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const [showResult, setShowResult] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
   const [detectedErrors, setDetectedErrors] = useState<Array<{ wrong: string; correct: string }>>([]);
+  const [detectedStructure, setDetectedStructure] = useState<PidatoStructure | undefined>(undefined);
   const [browserSupported, setBrowserSupported] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
 
@@ -269,12 +272,15 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       hasShownResultRef.current = true;
       setIsValidating(true);
-      setStatusMessage('Memvalidasi dengan KBBI...');
+      setStatusMessage(pidatoMode ? 'Menganalisis pidato...' : 'Memvalidasi dengan KBBI...');
       setResultTranscript(sentence);
 
       resetTranscriptState();
 
       let shouldShowResult = true;
+      let finalErrors: Array<{ wrong: string; correct: string }> = [];
+      let finalCorrect = false;
+      let finalStructure: PidatoStructure | undefined = undefined;
 
       try {
         const { errors, language } = await validateWithKBBI(sentence);
@@ -287,22 +293,48 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           shouldShowResult = false;
           setDetectedErrors([]);
           setIsCorrect(false);
+          setDetectedStructure(undefined);
           hasShownResultRef.current = false;
         } else {
+          finalErrors = errors;
+          finalCorrect = errors.length === 0;
           setDetectedErrors(errors);
-          setIsCorrect(errors.length === 0);
+          setIsCorrect(finalCorrect);
+
+          if (pidatoMode) {
+            finalStructure = detectPidatoStructure(sentence);
+            setDetectedStructure(finalStructure);
+          } else {
+            setDetectedStructure(undefined);
+          }
         }
       } catch (err) {
         console.error('Validation error:', err);
+        finalCorrect = true;
         setDetectedErrors([]);
         setIsCorrect(true);
+        setDetectedStructure(undefined);
       } finally {
         setIsValidating(false);
         setStatusMessage('');
         setShowResult(shouldShowResult);
+
+        if (shouldShowResult) {
+          try {
+            saveHistoryEntry({
+              transcript: sentence,
+              isCorrect: finalCorrect,
+              errors: finalErrors,
+              mode: pidatoMode ? 'pidato' : 'kalimat',
+              structure: finalStructure,
+            });
+          } catch (e) {
+            console.error('Failed saving history', e);
+          }
+        }
       }
     },
-    [normalizeTranscript, resetTranscriptState, validateWithKBBI],
+    [normalizeTranscript, pidatoMode, resetTranscriptState, validateWithKBBI],
   );
 
   const getBufferedSentence = useCallback(() => {
@@ -319,7 +351,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     const recognition = recognitionRef.current;
     if (!recognition) {
       cleanupRecognition(null);
-      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
         void processSentence(bufferedSentence);
       } else {
         resetTranscriptState();
@@ -336,16 +368,21 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       console.error('Error stopping recognition gracefully:', error);
       cleanupRecognition(recognition);
 
-      if (bufferedSentence && sentenceMode && !hasShownResultRef.current) {
+      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
         void processSentence(bufferedSentence);
       } else {
         resetTranscriptState();
       }
     }
-  }, [cleanupRecognition, getBufferedSentence, processSentence, resetTranscriptState, sentenceMode]);
+  }, [cleanupRecognition, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
 
   const scheduleSentenceProcessing = useCallback(() => {
     clearSilenceTimer();
+
+    if (pidatoMode) {
+      // In pidato mode, do not auto-stop on silence — user controls stop manually.
+      return;
+    }
 
     const delayMs = sentenceMode ? 1000 : 2000;
     silenceTimerRef.current = setTimeout(() => {
@@ -362,7 +399,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       resetTranscriptState();
     }, delayMs);
-  }, [clearSilenceTimer, getBufferedSentence, requestStopListening, resetTranscriptState, sentenceMode]);
+  }, [clearSilenceTimer, getBufferedSentence, pidatoMode, requestStopListening, resetTranscriptState, sentenceMode]);
 
   const startListening = useCallback(() => {
     if (isStartingRef.current || recognitionRef.current) return;
@@ -385,7 +422,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
     try {
       const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = !isMobileSpeechBrowser();
+      recognition.continuous = pidatoMode ? true : !isMobileSpeechBrowser();
       recognition.interimResults = true;
       recognition.lang = 'id-ID';
       recognition.maxAlternatives = 1;
@@ -397,6 +434,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       setShowResult(false);
       setDetectedErrors([]);
       setIsCorrect(false);
+      setDetectedStructure(undefined);
       hasShownResultRef.current = false;
       clearSilenceTimer();
 
@@ -505,6 +543,36 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
+        // In pidato mode, auto-restart if user hasn't requested stop (handles mobile WebKit cutoffs).
+        if (pidatoMode && !isStoppingRef.current) {
+          // Preserve buffered transcript across restarts.
+          const preservedBuffer = sentenceBufferRef.current;
+          const preservedFinal = finalTranscriptRef.current;
+
+          try {
+            recognition.onstart = null;
+            recognition.onend = null;
+            recognition.onerror = null;
+            recognition.onresult = null;
+            recognition.onspeechstart = null;
+            recognition.onspeechend = null;
+          } catch {}
+          recognitionRef.current = null;
+          isStartingRef.current = false;
+
+          // Restore buffers after reset inside startListening.
+          setTimeout(() => {
+            startListening();
+            setTimeout(() => {
+              sentenceBufferRef.current = preservedBuffer || sentenceBufferRef.current;
+              finalTranscriptRef.current = preservedFinal || finalTranscriptRef.current;
+              if (preservedBuffer) setCurrentTranscript(preservedBuffer);
+            }, 50);
+          }, 120);
+          setStatusMessage('Melanjutkan rekaman pidato...');
+          return;
+        }
+
         const pendingSentence = normalizeTranscript(
           pendingSentenceOnStopRef.current
             ? mergeTranscriptText(pendingSentenceOnStopRef.current, getBufferedSentence())
@@ -513,7 +581,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
         cleanupRecognition(recognition);
 
-        if (sentenceMode && pendingSentence && !hasShownResultRef.current) {
+        if ((sentenceMode || pidatoMode) && pendingSentence && !hasShownResultRef.current) {
           void processSentence(pendingSentence);
           return;
         }
@@ -557,7 +625,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         });
       }
     }
-  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode]);
+  }, [clearSilenceTimer, cleanupRecognition, forceStopListening, getBufferedSentence, isMobileSpeechBrowser, mergeTranscriptText, normalizeTranscript, pidatoMode, processSentence, resetTranscriptState, scheduleSentenceProcessing, sentenceMode]);
 
   const handleMicClick = () => {
     if (isListening) {
@@ -573,6 +641,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
     setResultTranscript('');
     setDetectedErrors([]);
     setIsCorrect(false);
+    setDetectedStructure(undefined);
     resetTranscriptState();
     hasShownResultRef.current = false;
     clearSilenceTimer();
@@ -605,6 +674,41 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
             Tekan tombol mikrofon dan mulai berbicara dalam Bahasa Indonesia yang baku
           </p>
         </div>
+
+        {/* Mode toggle */}
+        <div className="mx-auto flex w-full max-w-md gap-2 rounded-2xl border border-border bg-card/60 p-1.5 shadow-sm backdrop-blur-sm">
+          <button
+            type="button"
+            disabled={isListening || isValidating}
+            onClick={() => setPidatoMode(false)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-60 sm:text-sm ${
+              !pidatoMode
+                ? 'bg-[hsl(200,70%,50%)] text-white shadow'
+                : 'text-[hsl(210,30%,40%)] hover:bg-[hsl(210,40%,93%)]'
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Mode Kalimat
+          </button>
+          <button
+            type="button"
+            disabled={isListening || isValidating}
+            onClick={() => setPidatoMode(true)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-60 sm:text-sm ${
+              pidatoMode
+                ? 'bg-[hsl(280,60%,50%)] text-white shadow'
+                : 'text-[hsl(210,30%,40%)] hover:bg-[hsl(210,40%,93%)]'
+            }`}
+          >
+            <Megaphone className="h-4 w-4" />
+            Mode Pidato
+          </button>
+        </div>
+        <p className="text-center text-xs text-muted-foreground">
+          {pidatoMode
+            ? 'Pidato lengkap: tekan mikrofon untuk mulai, tekan lagi setelah selesai. Struktur (pembukaan, isi, penutup) akan dianalisis.'
+            : 'Kalimat tunggal: jeda 1 detik akan menghentikan rekaman otomatis dan memvalidasi kata baku.'}
+        </p>
 
         {!browserSupported && (
           <Card className="border-destructive/50 bg-destructive/10 p-4">
@@ -703,6 +807,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         isCorrect={isCorrect}
         errors={detectedErrors}
         transcript={resultTranscript}
+        structure={detectedStructure}
         onClose={closeResult}
       />
     </div>
