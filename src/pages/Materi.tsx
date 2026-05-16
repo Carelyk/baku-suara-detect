@@ -56,6 +56,7 @@ const slides = [
 const Materi = () => {
   const navigate = useNavigate();
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [direction, setDirection] = useState<'next' | 'prev'>('next');
 
   const isLastSlide = currentSlide === slides.length - 1;
 
@@ -63,113 +64,140 @@ const Materi = () => {
     if (isLastSlide) {
       navigate('/');
     } else {
+      setDirection('next');
       setCurrentSlide(currentSlide + 1);
     }
   };
 
   const goPrev = () => {
-    if (currentSlide > 0) setCurrentSlide(currentSlide - 1);
+    if (currentSlide > 0) {
+      setDirection('prev');
+      setCurrentSlide(currentSlide - 1);
+    }
   };
 
   const progress = ((currentSlide + 1) / slides.length) * 100;
 
   return (
     <div
-      className="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-[hsl(205,60%,94%)] via-[hsl(210,50%,96%)] to-[hsl(220,50%,92%)]"
+      className="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-[hsl(30,40%,88%)] via-[hsl(35,35%,92%)] to-[hsl(40,40%,86%)]"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
       <div
-        className="absolute inset-0 opacity-[0.08]"
+        className="absolute inset-0 opacity-20"
         style={{
-          backgroundImage: 'radial-gradient(circle, hsl(210,50%,60%) 1px, transparent 1px)',
-          backgroundSize: '28px 28px',
+          backgroundImage:
+            'radial-gradient(circle at 20% 20%, hsl(30,40%,75%) 0%, transparent 50%), radial-gradient(circle at 80% 80%, hsl(40,40%,75%) 0%, transparent 50%)',
         }}
       />
 
-      <div className="relative z-10 flex items-center gap-3 border-b border-[hsl(210,40%,90%)] bg-[hsl(0,0%,100%)]/70 p-3 backdrop-blur-sm sm:p-4">
+      <div className="relative z-10 flex items-center gap-3 border-b border-[hsl(30,30%,75%)] bg-[hsl(40,40%,94%)]/80 p-3 backdrop-blur-sm sm:p-4">
         <Button
           variant="ghost"
           size="icon"
           onClick={() => navigate('/')}
-          className="shrink-0 rounded-xl hover:bg-[hsl(210,40%,90%)]"
+          className="shrink-0 rounded-xl hover:bg-[hsl(30,30%,85%)]"
         >
-          <Home className="h-5 w-5 text-[hsl(210,50%,40%)]" />
+          <Home className="h-5 w-5 text-[hsl(25,40%,30%)]" />
         </Button>
         <div className="flex min-w-0 items-center gap-2">
-          <BookOpen className="h-5 w-5 shrink-0 text-[hsl(35,70%,45%)]" />
-          <h1 className="truncate text-sm font-bold text-[hsl(210,40%,30%)] sm:text-lg">Materi Pembelajaran</h1>
+          <BookOpen className="h-5 w-5 shrink-0 text-[hsl(25,70%,40%)]" />
+          <h1 className="truncate text-sm font-bold text-[hsl(25,40%,25%)] sm:text-lg">
+            Buku Materi Pembelajaran
+          </h1>
         </div>
       </div>
 
       <div className="relative z-10 px-4 pt-3">
-        <div className="mx-auto w-full max-w-lg">
+        <div className="mx-auto w-full max-w-3xl">
           <div className="mb-1 flex items-center justify-between gap-3">
-            <span className="text-[10px] font-medium text-[hsl(210,30%,50%)] sm:text-xs">
-              Progres Belajar
+            <span className="text-[10px] font-medium text-[hsl(25,30%,40%)] sm:text-xs">
+              Halaman
             </span>
-            <span className="text-[10px] font-bold text-[hsl(200,70%,45%)] sm:text-xs">
+            <span className="text-[10px] font-bold text-[hsl(25,70%,40%)] sm:text-xs">
               {currentSlide + 1} / {slides.length}
             </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-[hsl(210,30%,88%)]">
+          <div className="h-2 overflow-hidden rounded-full bg-[hsl(30,25%,80%)]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[hsl(200,70%,55%)] to-[hsl(220,65%,55%)] transition-all duration-500 ease-out"
+              className="h-full rounded-full bg-gradient-to-r from-[hsl(25,75%,55%)] to-[hsl(35,70%,55%)] transition-all duration-500 ease-out"
               style={{ width: `${progress}%` }}
             />
           </div>
         </div>
       </div>
 
-      <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-4 py-4">
-        <div className="w-full max-w-lg">
-          <div
-            key={currentSlide}
-            className="animate-in slide-in-from-right-2 fade-in duration-300 overflow-hidden rounded-2xl border border-[hsl(210,40%,88%)] bg-[hsl(0,0%,100%)]/90 shadow-lg backdrop-blur-sm"
-          >
-            <div className="border-b border-[hsl(210,40%,88%)] bg-gradient-to-r from-[hsl(200,55%,92%)] to-[hsl(210,50%,94%)] px-5 py-4 sm:px-6">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 text-3xl sm:text-4xl">{slideIcons[currentSlide]}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-[hsl(210,30%,55%)]">
-                    Materi {currentSlide + 1}
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-3 py-4 sm:px-6">
+        <div className="w-full max-w-3xl">
+          {/* Book container */}
+          <div className="book-shadow relative overflow-hidden rounded-r-2xl rounded-l-lg">
+            <div className="flex">
+              {/* Left binding (decorative) */}
+              <div className="book-spine hidden w-6 shrink-0 bg-[hsl(30,40%,78%)] sm:block" />
+
+              {/* Page */}
+              <div
+                key={currentSlide}
+                className={`book-page flex-1 px-5 py-6 sm:px-10 sm:py-8 ${
+                  direction === 'next' ? 'page-enter-next' : 'page-enter-prev'
+                }`}
+              >
+                <div className="mb-4 flex items-start gap-3 border-b-2 border-dashed border-[hsl(30,35%,70%)] pb-3">
+                  <span className="mt-0.5 text-3xl sm:text-4xl">{slideIcons[currentSlide]}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="mb-0.5 font-serif text-[10px] uppercase tracking-[0.2em] text-[hsl(25,40%,45%)]">
+                      Bab {currentSlide + 1}
+                    </p>
+                    <h2 className="font-serif text-lg font-bold leading-snug text-[hsl(25,50%,22%)] sm:text-2xl">
+                      {slides[currentSlide].title}
+                    </h2>
+                  </div>
+                </div>
+
+                <div className="max-h-[50vh] min-h-[200px] overflow-y-auto pr-1 sm:min-h-[260px]">
+                  <p className="break-words whitespace-pre-line font-serif text-sm leading-7 text-[hsl(25,20%,20%)] sm:text-base sm:leading-8">
+                    {slides[currentSlide].content}
                   </p>
-                  <h2 className="text-base font-bold leading-snug text-[hsl(210,50%,30%)] sm:text-lg">
-                    {slides[currentSlide].title}
-                  </h2>
+                </div>
+
+                {currentSlide === slides.length - 1 && (
+                  <div className="mt-4 flex justify-center">
+                    <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-[hsl(40,60%,60%)] bg-gradient-to-r from-[hsl(40,80%,85%)] to-[hsl(35,75%,82%)] px-4 py-2 text-center shadow-sm">
+                      <Star className="h-4 w-4 shrink-0 fill-[hsl(40,80%,45%)] text-[hsl(40,80%,45%)]" />
+                      <span className="font-serif text-xs font-bold leading-relaxed text-[hsl(25,55%,25%)]">
+                        Selamat! Kamu sudah selesai membaca semua materi 🎉
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-5 flex justify-end font-serif text-xs italic text-[hsl(25,30%,50%)]">
+                  — halaman {currentSlide + 1} —
                 </div>
               </div>
-            </div>
 
-            <div className="max-h-[52vh] min-h-[220px] overflow-y-auto p-5 sm:min-h-[260px] sm:p-6">
-              <p className="break-words whitespace-pre-line text-sm leading-relaxed text-[hsl(210,15%,35%)] sm:text-base">
-                {slides[currentSlide].content}
-              </p>
+              {/* Right page edge (decorative) */}
+              <div className="hidden w-2 shrink-0 bg-gradient-to-l from-[hsl(30,40%,75%)] to-transparent sm:block" />
             </div>
-
-            {currentSlide === slides.length - 1 && (
-              <div className="flex justify-center px-5 pb-4">
-                <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-[hsl(40,60%,80%)] bg-gradient-to-r from-[hsl(40,80%,92%)] to-[hsl(35,70%,90%)] px-4 py-2 text-center">
-                  <Star className="h-4 w-4 shrink-0 fill-[hsl(40,80%,50%)] text-[hsl(40,80%,50%)]" />
-                  <span className="text-xs font-bold leading-relaxed text-[hsl(35,50%,35%)]">
-                    Selamat! Kamu sudah selesai membaca semua materi 🎉
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:flex-nowrap sm:justify-between">
+          {/* Bottom book base (page stack illusion) */}
+          <div className="mx-2 h-2 rounded-b-2xl bg-[hsl(30,30%,72%)]/70 shadow-md" />
+          <div className="mx-4 h-1.5 rounded-b-2xl bg-[hsl(30,25%,68%)]/60" />
+
+          {/* Navigation */}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:flex-nowrap sm:justify-between">
             <Button
               variant="outline"
               onClick={goPrev}
               disabled={currentSlide === 0}
-              className="order-1 min-w-[120px] flex-1 rounded-xl border-[hsl(210,40%,85%)] bg-[hsl(0,0%,100%)]/80 shadow-sm hover:bg-[hsl(210,40%,93%)] disabled:opacity-30 sm:min-w-0 sm:flex-none"
+              className="order-1 min-w-[120px] flex-1 rounded-xl border-[hsl(30,40%,70%)] bg-[hsl(40,45%,95%)] text-[hsl(25,50%,25%)] shadow-sm hover:bg-[hsl(40,50%,90%)] disabled:opacity-30 sm:min-w-0 sm:flex-none"
             >
               <ChevronLeft className="h-4 w-4" />
-              <span className="text-sm">Back</span>
+              <span className="text-sm">Halaman Sebelumnya</span>
             </Button>
 
             <Button
@@ -177,18 +205,18 @@ const Materi = () => {
               onClick={goNext}
               className={`order-2 min-w-[120px] flex-1 rounded-xl shadow-sm sm:order-3 sm:min-w-0 sm:flex-none ${
                 isLastSlide
-                  ? 'border-[hsl(200,60%,50%)] bg-[hsl(200,60%,50%)] text-white hover:bg-[hsl(200,60%,45%)]'
-                  : 'border-[hsl(210,40%,85%)] bg-[hsl(0,0%,100%)]/80 hover:bg-[hsl(210,40%,93%)]'
+                  ? 'border-[hsl(25,75%,45%)] bg-[hsl(25,75%,50%)] text-white hover:bg-[hsl(25,75%,45%)]'
+                  : 'border-[hsl(30,40%,70%)] bg-[hsl(40,45%,95%)] text-[hsl(25,50%,25%)] hover:bg-[hsl(40,50%,90%)]'
               }`}
             >
               {isLastSlide ? (
                 <>
                   <CheckCircle className="h-4 w-4" />
-                  <span className="text-sm">Finish</span>
+                  <span className="text-sm">Selesai</span>
                 </>
               ) : (
                 <>
-                  <span className="text-sm">Next</span>
+                  <span className="text-sm">Halaman Berikutnya</span>
                   <ChevronRight className="h-4 w-4" />
                 </>
               )}
@@ -199,14 +227,17 @@ const Materi = () => {
                 {slides.map((_, i) => (
                   <button
                     key={i}
-                    aria-label={`Buka slide ${i + 1}`}
-                    onClick={() => setCurrentSlide(i)}
+                    aria-label={`Buka halaman ${i + 1}`}
+                    onClick={() => {
+                      setDirection(i > currentSlide ? 'next' : 'prev');
+                      setCurrentSlide(i);
+                    }}
                     className={`h-2 w-2 shrink-0 rounded-full transition-all duration-300 sm:h-2.5 sm:w-2.5 ${
                       i === currentSlide
-                        ? 'scale-125 bg-[hsl(200,70%,50%)]'
+                        ? 'scale-125 bg-[hsl(25,75%,45%)]'
                         : i < currentSlide
-                          ? 'bg-[hsl(200,50%,70%)]'
-                          : 'bg-[hsl(210,20%,82%)] hover:bg-[hsl(210,30%,70%)]'
+                          ? 'bg-[hsl(25,55%,65%)]'
+                          : 'bg-[hsl(30,20%,75%)] hover:bg-[hsl(30,30%,60%)]'
                     }`}
                   />
                 ))}
