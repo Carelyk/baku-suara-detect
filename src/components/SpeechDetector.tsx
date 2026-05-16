@@ -272,12 +272,15 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
 
       hasShownResultRef.current = true;
       setIsValidating(true);
-      setStatusMessage('Memvalidasi dengan KBBI...');
+      setStatusMessage(pidatoMode ? 'Menganalisis pidato...' : 'Memvalidasi dengan KBBI...');
       setResultTranscript(sentence);
 
       resetTranscriptState();
 
       let shouldShowResult = true;
+      let finalErrors: Array<{ wrong: string; correct: string }> = [];
+      let finalCorrect = false;
+      let finalStructure: PidatoStructure | undefined = undefined;
 
       try {
         const { errors, language } = await validateWithKBBI(sentence);
@@ -290,22 +293,48 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           shouldShowResult = false;
           setDetectedErrors([]);
           setIsCorrect(false);
+          setDetectedStructure(undefined);
           hasShownResultRef.current = false;
         } else {
+          finalErrors = errors;
+          finalCorrect = errors.length === 0;
           setDetectedErrors(errors);
-          setIsCorrect(errors.length === 0);
+          setIsCorrect(finalCorrect);
+
+          if (pidatoMode) {
+            finalStructure = detectPidatoStructure(sentence);
+            setDetectedStructure(finalStructure);
+          } else {
+            setDetectedStructure(undefined);
+          }
         }
       } catch (err) {
         console.error('Validation error:', err);
+        finalCorrect = true;
         setDetectedErrors([]);
         setIsCorrect(true);
+        setDetectedStructure(undefined);
       } finally {
         setIsValidating(false);
         setStatusMessage('');
         setShowResult(shouldShowResult);
+
+        if (shouldShowResult) {
+          try {
+            saveHistoryEntry({
+              transcript: sentence,
+              isCorrect: finalCorrect,
+              errors: finalErrors,
+              mode: pidatoMode ? 'pidato' : 'kalimat',
+              structure: finalStructure,
+            });
+          } catch (e) {
+            console.error('Failed saving history', e);
+          }
+        }
       }
     },
-    [normalizeTranscript, resetTranscriptState, validateWithKBBI],
+    [normalizeTranscript, pidatoMode, resetTranscriptState, validateWithKBBI],
   );
 
   const getBufferedSentence = useCallback(() => {
