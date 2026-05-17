@@ -251,6 +251,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const forceStopListening = useCallback(() => {
     shouldProcessOnEndRef.current = false;
     pendingSentenceOnStopRef.current = '';
+    userStopRequestedRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
 
     const recognition = recognitionRef.current;
     if (!recognition) {
