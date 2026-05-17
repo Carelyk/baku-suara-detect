@@ -667,6 +667,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       return;
     }
 
+    userStopRequestedRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     startListening();
   };
 
