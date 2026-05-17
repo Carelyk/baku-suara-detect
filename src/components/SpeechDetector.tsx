@@ -34,6 +34,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const shouldProcessOnEndRef = useRef(false);
   const isStartingRef = useRef(false);
   const isStoppingRef = useRef(false);
+  const userStopRequestedRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptSignatureRef = useRef('');
 
   const informalWords: Record<string, string> = {
@@ -249,6 +251,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const forceStopListening = useCallback(() => {
     shouldProcessOnEndRef.current = false;
     pendingSentenceOnStopRef.current = '';
+    userStopRequestedRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
 
     const recognition = recognitionRef.current;
     if (!recognition) {
@@ -344,6 +351,12 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const requestStopListening = useCallback(() => {
     if (isStoppingRef.current) return;
 
+    userStopRequestedRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
     const bufferedSentence = getBufferedSentence();
     pendingSentenceOnStopRef.current = bufferedSentence;
     shouldProcessOnEndRef.current = Boolean(bufferedSentence);
@@ -366,6 +379,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.stop();
     } catch (error) {
       console.error('Error stopping recognition gracefully:', error);
+      try { recognition.abort?.(); } catch {}
       cleanupRecognition(recognition);
 
       if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
@@ -374,6 +388,19 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         resetTranscriptState();
       }
     }
+
+    // Safety net: if onend doesn't fire on mobile, force-stop after a short delay.
+    setTimeout(() => {
+      if (recognitionRef.current === recognition) {
+        try { recognition.abort?.(); } catch {}
+        cleanupRecognition(recognition);
+        if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
+          void processSentence(bufferedSentence);
+        } else {
+          resetTranscriptState();
+        }
+      }
+    }, 1500);
   }, [cleanupRecognition, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
 
   const scheduleSentenceProcessing = useCallback(() => {
@@ -543,8 +570,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
-        // In pidato mode, auto-restart if user hasn't requested stop (handles mobile WebKit cutoffs).
-        if (pidatoMode && !isStoppingRef.current) {
+        // In pidato mode, auto-restart ONLY if user hasn't pressed stop.
+        if (pidatoMode && !isStoppingRef.current && !userStopRequestedRef.current) {
           // Preserve buffered transcript across restarts.
           const preservedBuffer = sentenceBufferRef.current;
           const preservedFinal = finalTranscriptRef.current;
@@ -560,8 +587,15 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           recognitionRef.current = null;
           isStartingRef.current = false;
 
-          // Restore buffers after reset inside startListening.
-          setTimeout(() => {
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            restartTimerRef.current = null;
+            // Re-check stop flag right before restarting (user might have pressed stop in between).
+            if (userStopRequestedRef.current) {
+              setIsListening(false);
+              setStatusMessage('');
+              return;
+            }
             startListening();
             setTimeout(() => {
               sentenceBufferRef.current = preservedBuffer || sentenceBufferRef.current;
@@ -633,6 +667,11 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       return;
     }
 
+    userStopRequestedRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     startListening();
   };
 
