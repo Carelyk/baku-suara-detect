@@ -570,8 +570,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.onend = () => {
         if (recognitionRef.current !== recognition) return;
 
-        // In pidato mode, auto-restart if user hasn't requested stop (handles mobile WebKit cutoffs).
-        if (pidatoMode && !isStoppingRef.current) {
+        // In pidato mode, auto-restart ONLY if user hasn't pressed stop.
+        if (pidatoMode && !isStoppingRef.current && !userStopRequestedRef.current) {
           // Preserve buffered transcript across restarts.
           const preservedBuffer = sentenceBufferRef.current;
           const preservedFinal = finalTranscriptRef.current;
@@ -587,8 +587,15 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
           recognitionRef.current = null;
           isStartingRef.current = false;
 
-          // Restore buffers after reset inside startListening.
-          setTimeout(() => {
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            restartTimerRef.current = null;
+            // Re-check stop flag right before restarting (user might have pressed stop in between).
+            if (userStopRequestedRef.current) {
+              setIsListening(false);
+              setStatusMessage('');
+              return;
+            }
             startListening();
             setTimeout(() => {
               sentenceBufferRef.current = preservedBuffer || sentenceBufferRef.current;
