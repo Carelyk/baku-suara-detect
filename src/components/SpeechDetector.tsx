@@ -351,6 +351,12 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const requestStopListening = useCallback(() => {
     if (isStoppingRef.current) return;
 
+    userStopRequestedRef.current = true;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
     const bufferedSentence = getBufferedSentence();
     pendingSentenceOnStopRef.current = bufferedSentence;
     shouldProcessOnEndRef.current = Boolean(bufferedSentence);
@@ -373,6 +379,7 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
       recognition.stop();
     } catch (error) {
       console.error('Error stopping recognition gracefully:', error);
+      try { recognition.abort?.(); } catch {}
       cleanupRecognition(recognition);
 
       if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
@@ -381,6 +388,19 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
         resetTranscriptState();
       }
     }
+
+    // Safety net: if onend doesn't fire on mobile, force-stop after a short delay.
+    setTimeout(() => {
+      if (recognitionRef.current === recognition) {
+        try { recognition.abort?.(); } catch {}
+        cleanupRecognition(recognition);
+        if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
+          void processSentence(bufferedSentence);
+        } else {
+          resetTranscriptState();
+        }
+      }
+    }, 1500);
   }, [cleanupRecognition, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
 
   const scheduleSentenceProcessing = useCallback(() => {
