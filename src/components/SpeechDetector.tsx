@@ -349,59 +349,52 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   }, [normalizeTranscript]);
 
   const requestStopListening = useCallback(() => {
-    if (isStoppingRef.current) return;
+    if (isStoppingRef.current && !pidatoMode) return;
 
     userStopRequestedRef.current = true;
+    isStoppingRef.current = true;
+
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    clearSilenceTimer();
 
     const bufferedSentence = getBufferedSentence();
     pendingSentenceOnStopRef.current = bufferedSentence;
     shouldProcessOnEndRef.current = Boolean(bufferedSentence);
 
-    const recognition = recognitionRef.current;
-    if (!recognition) {
-      cleanupRecognition(null);
-      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
-        void processSentence(bufferedSentence);
-      } else {
-        resetTranscriptState();
-      }
-      return;
-    }
-
-    isStoppingRef.current = true;
+    // Immediate UI feedback — don't wait for onend (unreliable on iOS Safari).
+    setIsListening(false);
     setStatusMessage(bufferedSentence ? 'Memproses ucapan...' : 'Menghentikan mikrofon...');
 
-    try {
-      recognition.stop();
-    } catch (error) {
-      console.error('Error stopping recognition gracefully:', error);
-      try { recognition.abort?.(); } catch {}
-      cleanupRecognition(recognition);
+    const recognition = recognitionRef.current;
 
-      if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
-        void processSentence(bufferedSentence);
-      } else {
-        resetTranscriptState();
+    // For pidato mode (mobile), abort aggressively — stop() often doesn't fire onend on iOS.
+    if (recognition) {
+      try { recognition.onend = null; } catch {}
+      try { recognition.onresult = null; } catch {}
+      try { recognition.onerror = null; } catch {}
+      try {
+        if (pidatoMode) {
+          recognition.abort?.();
+        } else {
+          recognition.stop();
+        }
+      } catch (error) {
+        console.error('Error stopping recognition:', error);
+        try { recognition.abort?.(); } catch {}
       }
     }
 
-    // Safety net: if onend doesn't fire on mobile, force-stop after a short delay.
-    setTimeout(() => {
-      if (recognitionRef.current === recognition) {
-        try { recognition.abort?.(); } catch {}
-        cleanupRecognition(recognition);
-        if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
-          void processSentence(bufferedSentence);
-        } else {
-          resetTranscriptState();
-        }
-      }
-    }, 1500);
-  }, [cleanupRecognition, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
+    cleanupRecognition(recognition);
+
+    if (bufferedSentence && (sentenceMode || pidatoMode) && !hasShownResultRef.current) {
+      void processSentence(bufferedSentence);
+    } else {
+      resetTranscriptState();
+    }
+  }, [cleanupRecognition, clearSilenceTimer, getBufferedSentence, pidatoMode, processSentence, resetTranscriptState, sentenceMode]);
 
   const scheduleSentenceProcessing = useCallback(() => {
     clearSilenceTimer();
