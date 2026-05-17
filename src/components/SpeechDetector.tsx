@@ -34,6 +34,8 @@ export const SpeechDetector = forwardRef<HTMLDivElement>((_, ref) => {
   const shouldProcessOnEndRef = useRef(false);
   const isStartingRef = useRef(false);
   const isStoppingRef = useRef(false);
+  const userStopRequestedRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTranscriptSignatureRef = useRef('');
 
   const informalWords: Record<string, string> = {
